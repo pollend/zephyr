@@ -136,6 +136,7 @@
 /drivers/i2c/i2c_ll_stm32*                @ldts @ydamigos
 /drivers/wifi/                            @jukkar @tbursztyka @pfalcon
 /drivers/wifi/eswifi/                     @loicpoulain
+/drivers/zio/                             @bfrog
 /dts/arm/st/                              @erwango
 /dts/arm/nordic/                          @ioannisg @carlescufi
 /dts/arm/nxp/                             @MaureenHelm
@@ -212,6 +213,7 @@
 /include/toolchain.h                      @andrewboie @andyross @nashif
 /include/toolchain/                       @andrewboie @andyross
 /include/zephyr.h                         @andrewboie @andyross
+/include/zio/                             @bfrog
 /kernel/                                  @andrewboie @andyross
 /lib/gui/                                 @vanwinkeljan
 /lib/os/                                  @andrewboie @andyross
@@ -275,6 +277,7 @@
 /subsys/shell/                            @jarz-nordic @nordic-krch
 /subsys/storage/                          @nvlsianpu
 /subsys/usb/                              @jfischer-phytec-iot @finikorg
+/subsys/zio/                              @bfrog
 /tests/boards/native_posix/               @aescolar
 /tests/boards/intel_s1000_crb/            @rgundi @dcpleung @sathishkuttan
 /tests/bluetooth/                         @sjanc @jhedberg @Vudentz
@@ -295,6 +298,7 @@
 /tests/net/socket/                        @jukkar @tbursztyka @pfalcon
 /tests/subsys/fs/                         @nashif @ramakrishnapallala
 /tests/subsys/settings/                   @nvlsianpu
+/tests/subsys/zio/                        @bfrog
 
 # Get all docs reviewed
 *.rst                                     @dbkinder

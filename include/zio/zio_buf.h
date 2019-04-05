@@ -66,16 +66,6 @@ struct zio_buf;
 typedef int (*zio_buf_pull_t)(struct zio_buf *buf, void *datum);
 
 /**
- * @brief Function to setup a poll event for the zio_buf
- *
- * The device itself decides when data becomes available and how. Then in
- * a zio application a k_poll_event is setup as a way of polling one or
- * more buffers.
- */
-typedef int (*zio_buf_poll_init_t)(struct zio_buf *buf,
-				   struct k_poll_event *evt);
-
-/**
  * @brief Function to set watermark of zio_buf
  *
  * Optional function for a driver if watermark manipulation is possible
@@ -87,14 +77,14 @@ typedef int (*zio_buf_set_watermark_t)(struct zio_buf *buf, u32_t watermark);
  *
  * Optional function for a driver to return the known watermark
  */
-typedef int (*zio_buf_get_watermark_t)(struct zio_buf *buf, u32_t *watermark);
+typedef u32_t (*zio_buf_get_watermark_t)(struct zio_buf *buf);
 
 /**
  * @brief Function to get length of zio_buf
  *
  * Optional function for a driver to return the known length
  */
-typedef int (*zio_buf_get_length_t)(struct zio_buf *buf, u32_t *length);
+typedef u32_t (*zio_buf_get_length_t)(struct zio_buf *buf);
 
 
 /**
@@ -108,7 +98,6 @@ typedef int (*zio_buf_get_length_t)(struct zio_buf *buf, u32_t *length);
  */
 struct zio_buf_api {
 	zio_buf_pull_t pull;
-	zio_buf_poll_init_t poll_init;
 	zio_buf_set_watermark_t set_watermark;
 	zio_buf_get_watermark_t get_watermark;
 	zio_buf_get_length_t get_length;
@@ -117,39 +106,47 @@ struct zio_buf_api {
 /**
  * @brief A pollable fifo-like buffer for reading and writing to streams of data
  *
- * An implementation should implement the api above statically optionally
- * setting a void* to its own data to be used. Each device driver may
- * implement their own zio_buf or base it on the software zio_fifo_buf
- * implementation already provided.
+ * An implementation should implement the api above statically and provide an
+ * attach/detach function pair to attach a zio_buf struct to it.
  */
 struct zio_buf {
-	bool circular : 1;
-	enum overflow_type {
-		ZIO_BUF_OVERFLOW_NONE,
-		ZIO_BUF_OVERFLOW_FLAG,
-		ZIO_BUF_OVERFLOW_COUNT,
-	} overflow_type;
-	u32_t overflow;
-	u32_t datum_size;
-	bool timestamps;
 	struct device *device;
-	struct zio_buf_api *buf_api;
-	void *buf_data;
+	struct zio_buf_api *api;
+	void *api_data;
+	_POLL_EVENT;
 };
+
+
+/**
+ * @private
+ * @brief ZIO_BUF static initializer
+ */
+#define Z_ZIO_BUF_INITIALIZER(name)		\
+	{					\
+		.device = NULL,			\
+		.api = NULL,	                \
+		.api_data = NULL,		\
+		_POLL_EVENT_OBJ_INIT(name)	\
+	}
+
+/**
+ * @brief Define and initialize a zio_buf
+ *
+ * @param name Name of the zio_buf
+ */
+#define ZIO_BUF_DEFINE(name) \
+	struct zio_buf name \
+	= Z_ZIO_BUF_INITIALIZER(name)
 
 /**
  * @brief Attach a buffer to a device.
- *
- * The buffer must use a fifo which uses the same sample type as the driver.
- *
- * TODO check for that at compile time in same way if possible
  *
  * @param buf Pointer to a zio_buf struct
  * @param dev Pointer to a zephyr device which implements the zio api
  *
  * @return 0 on success, -errno on failure.
  */
-int zio_buf_attach(struct zio_buf *buf, struct device *dev)
+static inline int zio_buf_attach(struct zio_buf *buf, struct device *dev)
 {
 	const struct zio_dev_api *api = dev->driver_api;
 
@@ -165,7 +162,7 @@ int zio_buf_attach(struct zio_buf *buf, struct device *dev)
  * @param buf Pointer to a zio_buf struct
  * @return 0 on success, -errno on failure.
  */
-int zio_buf_detach(struct zio_buf *buf)
+static inline int zio_buf_detach(struct zio_buf *buf)
 {
 	struct device *dev = buf->device;
 	const struct zio_dev_api *api = dev->driver_api;
@@ -174,6 +171,27 @@ int zio_buf_detach(struct zio_buf *buf)
 		return -ENOTSUP;
 	}
 	return api->detach_buf(dev, buf);
+}
+
+/**
+ * @brief Pull a sample from the buffer
+ *
+ * The size of the sample is the sum of bytesizes of all enabled channels for a
+ * device
+ *
+ * @param buf Pointer to a zio_buf struct
+ * @param sample Pointer to sample to move sample into
+ * @return 1 on success, 0 if nothing to pull, -errno on failure.
+ */
+static inline int zio_buf_pull(struct zio_buf *buf, void *sample)
+{
+	const struct zio_buf_api *api = buf->api;
+
+	if (!api->pull) {
+		return -ENOTSUP;
+	}
+
+	return api->pull(buf, sample);
 }
 
 /**
@@ -186,9 +204,9 @@ int zio_buf_detach(struct zio_buf *buf)
  * @param watermark Desired watermark to cause a pollable signal to be set
  * @return 0 on success, -errno on failure.
  */
-int zio_buf_set_watermark(struct zio_buf *buf, u32_t watermark)
+static inline int zio_buf_set_watermark(struct zio_buf *buf, u32_t watermark)
 {
-	const struct zio_buf_api *api = buf->buf_api;
+	const struct zio_buf_api *api = buf->api;
 
 	if (!api->set_watermark) {
 		return -ENOTSUP;
@@ -197,46 +215,88 @@ int zio_buf_set_watermark(struct zio_buf *buf, u32_t watermark)
 }
 
 /**
- * @brief Get the watermark
+ * @brief Get the watermark value
+ *
+ * The watermark determines the minimum number of samples needed in the buffer
+ * to cause k_poll on this zio_buf to return it as ready
  *
  * @param buf Pointer to a zio_buf struct
  * @param watermark Watermark to cause a signal being set
  * @return 0 on success, -errno on failure.
  */
-int zio_buf_get_watermark(struct zio_buf *buf, u32_t *watermark)
+static inline int zio_buf_get_watermark(struct zio_buf *buf, u32_t *watermark)
 {
-	const struct zio_buf_api *api = buf->buf_api;
+	const struct zio_buf_api *api = buf->api;
 
 	if (!api->get_watermark) {
 		return -ENOTSUP;
 	}
-	return api->get_watermark(buf, watermark);
+	*watermark = api->get_watermark(buf);
+	return 0;
 }
 
 /**
- * @brief Get the length of the buffer
+ * @brief Get the number of samples contained in the buffer
  *
  * @param buf Pointer to a zio_buf struct
  * @param length Pointer to a u32_t where length will be assigned
  * @return 0 on success, -errno on failure.
  */
-int zio_buf_get_length(struct zio_buf *buf, u32_t *length)
+static inline int zio_buf_get_length(struct zio_buf *buf, u32_t *length)
 {
-	const struct zio_buf_api *api = buf->buf_api;
+	const struct zio_buf_api *api = buf->api;
 
 	if (!api->get_length) {
 		return -ENOTSUP;
 	}
-	return api->get_length(buf, length);
+	*length = api->get_length(buf);
+	return 0;
+}
+
+/**
+ * @private
+ * @brief Handle poll events
+ *
+ * This function is to be used by implementations to handle poll events when the zio
+ * buf is ready to be used.
+ */
+#ifdef CONFIG_POLL
+static inline void z_zio_buf_handle_poll_events(struct zio_buf *buf, u32_t state)
+{
+	z_handle_obj_poll_events(&buf->poll_events, state);
+}
+#endif
+
+/**
+ * @private
+ * @brief Attach an implementation
+ */
+static inline void z_zio_buf_attach(struct zio_buf *buf, struct zio_buf_api *api, void *api_data)
+{
+	buf->api = api;
+	buf->api_data = api_data;
+}
+
+/**
+ * @private
+ * @brief Detach an implementation
+ */
+static inline void z_zio_buf_detach(struct zio_buf *buf)
+{
+	buf->api = NULL;
+	buf->api_data = NULL;
+#ifdef CONFIG_POLL
+	z_handle_obj_poll_events(&buf->poll_events, K_POLL_STATE_CANCELLED);
+#endif
 }
 
 
 /* TODO
- * - define helpers for accessing each channel or groups of channels in a
+ * - define functions for manipulating attributes by their type, assuming one of
+ *   each type of attribute exists
+ * - define functions for accessing each channel or groups of channels in a
  *   more meaningful way from interleaved samples
  *   ie accel x,y,z gyro x,y,z, timestamp etc
- * - define helpers to wait some number of samples to show up, k_poll plus count
- *   of polls notified, i.e. zio_buf_fill()
  * - define helpers for obtaining SI unit converted values when possible
  */
 

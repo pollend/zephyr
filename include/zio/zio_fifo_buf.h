@@ -30,9 +30,8 @@
  */
 struct z_zio_fifo_buf {
 	u32_t watermark;
-	u32_t length;
-	struct k_poll_signal signal;
 	struct zio_fifo *fifo;
+	struct zio_buf *zbuf;
 };
 
 /**
@@ -41,56 +40,103 @@ struct z_zio_fifo_buf {
  * Statically initialize a zio_fifo_buf with a fixed number of elements of a
  * given type
  */
-#define ZIO_FIFO_BUF_STATIC_INIT(name, type, pow)				\
-	{									\
-		.buf = {							\
-			.signal = K_POLL_SIGNAL_INITIALIZER((name.buf.signal)),	\
-			.fifo = &(name).fifo.zfifo				\
-		},								\
-		.fifo = ZIO_FIFO_STATIC_INIT((name.fifo), type, pow)		\
+#define ZIO_FIFO_BUF_INITIALIZER(name, type, pow) \
+	{ \
+		.buf = { \
+			.fifo = &(name).fifo.zfifo, \
+			.watermark = 1, \
+			.zbuf = NULL, \
+		}, \
+		.fifo = ZIO_FIFO_INITIALIZER((name.fifo), type, pow) \
 	}
 
 /**
  * @brief Declare an anonymous struct type for a zio_fifo_buf
  *
  * Declare a zio_fifo_buf with a fixed number of elements of a given type
+ *
+ * @param name Name of the zio_fifo_buf
+ * @param type Element type stored in the FIFO
+ * @param pow Power of 2 to size the fifo
+ *
  */
-#define ZIO_FIFO_BUF_DECLARE(name, type, pow)	   \
-	struct {				   \
-		struct z_zio_fifo_buf buf;	   \
+#define ZIO_FIFO_BUF_DECLARE(name, type, pow) \
+	struct { \
+		struct z_zio_fifo_buf buf; \
 		ZIO_FIFO_DECLARE(fifo, type, pow); \
 	} name
 
 /**
- * @brief Define a zio_fifo_buf with a specific name, type, and size
+ * @brief Define a zio_fifo_buf
+ *
+ * @param name Name of the zio_fifo_buf
+ * @param type Element type stored in the FIFO
+ * @param pow Power of 2 to size the fifo
  */
-#define ZIO_FIFO_BUF_DEFINE(name, type, pow)	\
+#define ZIO_FIFO_BUF_DEFINE(name, type, pow) \
 	ZIO_FIFO_BUF_DECLARE(name, type, pow) =	\
-		ZIO_FIFO_BUF_STATIC_INIT(name, type, pow)
-
-/**
- * @brief Define a static zio_fifo_buf with a specific name, type, and size
- */
-#define ZIO_FIFO_BUF_DEFINE_STATIC(name, type, pow) \
-	static ZIO_FIFO_BUF_DEFINE(name, type, pow)
-
+		ZIO_FIFO_BUF_INITIALIZER(name, type, pow)
 
 /**
  * @brief Push a datum into the fifo notifying event pollers if needed
  *
+ * If a zio_buf is attached and POLL is enabled poller are notified
+ *
  * @param fifobuf Pointer to a "zio_fifo_buf" definition
  * @param datum Value to push into zio_fifo_buf
+ *
+ * @return Returns 1 if watermark has been reached, 0 otherwise
  */
-#define zio_fifo_buf_push(fifobuf, datum)				      \
-	({								      \
-		int ret = 0;						      \
-		if (zio_fifo_push(&(fifobuf)->fifo, datum)) {		      \
-			(fifobuf)->buf.length += 1;			      \
-		}							      \
-		if ((fifobuf)->buf.length >= (fifobuf)->buf.watermark) {      \
-			ret = k_poll_signal_raise(&(fifobuf)->buf.signal, 0); \
-		}							      \
-		ret;							      \
+#define zio_fifo_buf_push(fifobuf, datum)				\
+	({								\
+		int ret = 0;						\
+		zio_fifo_push(&(fifobuf)->fifo, datum);			\
+		u32_t length = zio_fifo_used(&(fifobuf)->fifo);   \
+		if (length >= (fifobuf)->buf.watermark) {		\
+			if((fifobuf)->buf.zbuf != NULL) {		\
+				z_zio_buf_handle_poll_events((fifobuf)->buf.zbuf, \
+							     K_POLL_STATE_DATA_AVAILABLE); \
+			}						\
+			ret = 1;					\
+		}							\
+		ret;							\
+	})
+
+/**
+ * @brief Attach a zio_buf to this zio_fifo_buf
+ *
+ * @param fifobuf Pointer to a "zio_fifo_buf" definition
+ * @param ziobuf Pointer to a zio_buf
+ *
+ * @return Returns 0 on succees, -EINVAL if a zio_buf was already attached.
+ */
+#define zio_fifo_buf_attach(fifobuf, ziobuf)				\
+	({								\
+		int ret = 0;						\
+		if((fifobuf)->buf.zbuf != NULL) {			\
+			ret = -EINVAL;					\
+		} else {						\
+			(fifobuf)->buf.zbuf = (ziobuf);			\
+			z_zio_buf_attach((ziobuf), &zio_fifo_buf_api, &((fifobuf)->buf)); \
+			u32_t length = zio_fifo_used(&(fifobuf)->fifo); \
+			if (length >= (fifobuf)->buf.watermark) { \
+				z_zio_buf_handle_poll_events((fifobuf)->buf.zbuf, K_POLL_STATE_DATA_AVAILABLE); \
+			}						\
+		}							\
+		ret;							\
+	})
+
+/**
+ * @brief Detach a zio_buf from this zio_fifo_buf
+ *
+ * @param fifobuf Pointer to a "zio_fifo_buf" definition
+ */
+#define zio_fifo_buf_detach(fifobuf)				\
+	({							\
+		if((fifobuf)->buf.zbuf != NULL) {		\
+			z_zio_buf_detach((fifobuf)->buf.zbuf);	\
+		}						\
+		(fifobuf)->buf.zbuf = NULL;			\
 	})
 
 

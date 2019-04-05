@@ -20,6 +20,8 @@
 #define ZEPHYR_ZIO_FIFO_H_
 
 #include <zephyr/types.h>
+#include <stdbool.h>
+#include <string.h>
 
 /**
  * @private
@@ -42,21 +44,21 @@ struct zio_fifo {
 /**
  * @brief Statically initialize a zio_fifo
  */
-#define ZIO_FIFO_STATIC_INIT(name, type, pow)	       \
-	{ .zfifo = { .in = 0,			       \
-		     .out = 0,			       \
+#define ZIO_FIFO_INITIALIZER(name, type, pow) \
+	{ .zfifo = { .in = 0, \
+		     .out = 0, \
 		     .mask = z_zio_fifo_pow2(pow) - 1, \
-		     .elem_size = sizeof(type),	       \
-		     .data = (u8_t *)((name).buffer)   \
-	  }					       \
+		     .elem_size = sizeof(type), \
+		     .data = (u8_t *)((name).buffer) \
+	  } \
 	}
 
 /**
  * @brief Declare an anonymous struct type for a zio_fifo
  */
-#define ZIO_FIFO_DECLARE(name, type, pow)	   \
-	struct {				   \
-		struct zio_fifo zfifo;		   \
+#define ZIO_FIFO_DECLARE(name, type, pow) \
+	struct { \
+		struct zio_fifo zfifo; \
 		type buffer[z_zio_fifo_pow2(pow)]; \
 	} name
 
@@ -69,17 +71,7 @@ struct zio_fifo {
  */
 #define ZIO_FIFO_DEFINE(name, type, pow)    \
 	ZIO_FIFO_DECLARE(name, type, pow) = \
-		ZIO_FIFO_STATIC_INIT(name, type, pow)
-
-/**
- * @brief Define a zio_fifo with a fixed size statically
- *
- * @param name Name of the fifo
- * @param type Type stored in the fifo
- * @param pow Power of 2 size of the fifo
- */
-#define ZIO_FIFO_DEFINE_STATIC(name, type, pow)	\
-	static ZIO_FIFO_DEFINE(name, type, pow)
+		ZIO_FIFO_INITIALIZER(name, type, pow)
 /**
  * @brief Size of the fifo
  *
@@ -130,6 +122,8 @@ static inline u32_t z_zio_fifo_avail(struct zio_fifo *fifo)
  * @brief Return if the fifo is full
  *
  * @param fifo Fifo reference
+ *
+ * @return 1 if full, 0 otherwise
  */
 static inline bool z_zio_fifo_is_full(struct zio_fifo *fifo)
 {

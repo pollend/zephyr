@@ -24,7 +24,7 @@ struct random {
 };
 
 /* test static define, would be a compile error if it didn't work correctly */
-ZIO_FIFO_DEFINE_STATIC(mybufforever, struct random, 8);
+static ZIO_FIFO_DEFINE(mybufforever, struct random, 8);
 
 static void test_zio_fifo_define(void)
 {

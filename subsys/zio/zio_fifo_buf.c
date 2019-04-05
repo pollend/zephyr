@@ -6,55 +6,49 @@
 
 #include <zio/zio_fifo_buf.h>
 
-
-static inline void z_zio_fifo_buf_clear(z_zio_fifo_buf *fifo_buf)
-{
-	k_poll_signal_reset(&fifo_buf->signal);
-}
-
 static int zio_fifo_buf_pull(struct zio_buf *buf, void *datum)
 {
-	if (buf->length <= 0) {
+	struct z_zio_fifo_buf *fifo_buf = buf->api_data;
+	struct zio_fifo *fifo = fifo_buf->fifo;
+
+	if (z_zio_fifo_used(fifo) <= 0) {
 		return 0;
 	}
 
-	z_zio_fifo_buf *fifo_buf = buf->impl_data;
-	struct zio_fifo *fifo = fifo_buf->fifo;
-
-	if (z_zio_fifo_pull(fifo, datum)) {
-		buf->length -= 1;
-		if (buf->length == 0) {
-			z_zio_fifo_buf_clear(buf_fifo);
-		}
-	}
-}
-
-static int zio_fifo_buf_poll_init(struct zio_buf *buf, struct k_poll_event *evt)
-{
-	z_zio_fifo_buf *fifo_buf = buf->impl_data;
-
-	k_poll_event_init(K_POLL_TYPE_SIGNAL,
-			  K_POLL_MODE_NOTIFY_ONLY,
-			  &fifo_buf->signal);
+	return z_zio_fifo_pull(fifo, datum);
 }
 
 static int zio_fifo_buf_set_watermark(struct zio_buf *buf, u32_t watermark)
 {
-	z_zio_fifo_buf *fifo_buf = buf->impl_data;
+	struct z_zio_fifo_buf *fifo_buf = buf->api_data;
 	struct zio_fifo *fifo = fifo_buf->fifo;
 
-	if (watermark > _zio_fifo_size(fifo)) {
+	if (watermark > z_zio_fifo_size(fifo)) {
 		return -EINVAL;
 	}
-	buf->watermark = watermark;
-	if (buf->length > buf->watermark) {
-		_zio_fifo_buf_notify(buf);
+	fifo_buf->watermark = watermark;
+	if (z_zio_fifo_used(fifo) >= fifo_buf->watermark) {
+		z_zio_buf_handle_poll_events(buf, K_POLL_STATE_DATA_AVAILABLE);
 	}
 	return 0;
 }
 
+static u32_t zio_fifo_buf_get_watermark(struct zio_buf *buf)
+{
+	struct z_zio_fifo_buf *fifo_buf = buf->api_data;
+	return fifo_buf->watermark;
+}
+
+static u32_t zio_fifo_buf_get_length(struct zio_buf *buf)
+{
+	struct z_zio_fifo_buf *fifo_buf = buf->api_data;
+	struct zio_fifo *fifo = fifo_buf->fifo;
+	return z_zio_fifo_used(fifo);
+}
+
 struct zio_buf_api zio_fifo_buf_api = {
 	.pull = zio_fifo_buf_pull,
-	.poll_init = zio_fifo_buf_poll_init,
 	.set_watermark = zio_fifo_buf_set_watermark,
+	.get_watermark = zio_fifo_buf_get_watermark,
+	.get_length = zio_fifo_buf_get_length,
 };

@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef ZEPHYR_INCLUDE_DRIVERS_ZIO_ICM20948_H_
+#define ZEPHYR_INCLUDE_DRIVERS_ZIO_ICM20948_H_
+
+#include <zio.h>
 
 #define CONFIG_ICM20948_I2C_SLAVE_ADDR (0x68 | CONFIG_ICM20948_I2C_AD0)
 
@@ -14,6 +18,7 @@
 #define ICM20948_BANK_3 3
 
 #define ICM20948_BANK_REG(BANK, REG) ((BANK << 7) | REG)
+
 /* registers */
 #define ICM20948_REG_BANK_SEL 0x7F
 
@@ -64,6 +69,7 @@
 #define ICM20948_REG_MEM_START_ADDR                  ICM20948_BANK_REG(ICM20948_BANK_0, 0x7C)
 #define ICM20948_REG_MEM_R_W                         ICM20948_BANK_REG(ICM20948_BANK_0, 0x7D)
 #define ICM20948_REG_MEM_BANK_SEL                    ICM20948_BANK_REG(ICM20948_BANK_0, 0x7E)
+
 #define ICM20948_REG_XA_OFFS_H                       ICM20948_BANK_REG(ICM20948_BANK_1, 0x14)
 #define ICM20948_REG_YA_OFFS_H                       ICM20948_BANK_REG(ICM20948_BANK_1, 0x17)
 #define ICM20948_REG_ZA_OFFS_H                       ICM20948_BANK_REG(ICM20948_BANK_1, 0x1A)
@@ -88,6 +94,7 @@
 #define ICM20948_REG_PRS_ODR_CONFIG                  ICM20948_BANK_REG(ICM20948_BANK_2, 0x20)
 #define ICM20948_REG_PRGM_START_ADDRH                ICM20948_BANK_REG(ICM20948_BANK_2, 0x50)
 #define ICM20948_REG_MOD_CTRL_USR                    ICM20948_BANK_REG(ICM20948_BANK_2, 0x54)
+
 #define ICM20948_REG_I2C_MST_ODR_CONFIG              ICM20948_BANK_REG(ICM20948_BANK_3, 0x00)
 #define ICM20948_REG_I2C_MST_CTRL                    ICM20948_BANK_REG(ICM20948_BANK_3, 0x01)
 #define ICM20948_REG_I2C_MST_DELAY_CTRL              ICM20948_BANK_REG(ICM20948_BANK_3, 0x02)
@@ -164,10 +171,31 @@ enum icm20948_accel_fs {
 #define ICM20948_GYRO_FS_TYPE (ZIO_CHAN_TYPES + 3)
 
 
-
-
 struct icm20948_datum{
 	s16_t accel[3];
 	s16_t gyro[3];
 		
 };
+
+struct icm20948_tf {
+	int (*read_data)(struct icm20948_data *data, u16_t reg_bank_addr,
+			 u8_t *value, u8_t len);
+
+	int (*write_data)(struct icm20948_data *data, u16_t reg_bank_addr,
+			  u8_t *value, u8_t len);
+
+	int (*read_reg)(struct icm20948_data *data, u16_t reg_bank_addr,
+			u8_t *value);
+
+	int (*write_reg)(struct icm20948_data *data, u16_t reg_bank_addr,
+			 u8_t value);
+
+	int (*update_reg)(struct icm20948_data *data, u16_t reg_bank_addr,
+			  u8_t mask, u8_t value);
+};
+
+int icm20948_i2c_init(struct device *dev);
+
+int icm20948_spi_init(struct device *dev);
+
+#endif

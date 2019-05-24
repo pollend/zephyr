@@ -167,8 +167,10 @@ enum icm20948_accel_fs {
 /* channel type(s) */
 #define ICM20948_COORD_TYPE (ZIO_CHAN_TYPES + 1)
 
-#define ICM20948_ACCEL_FS_TYPE (ZIO_CHAN_TYPES + 2)
-#define ICM20948_GYRO_FS_TYPE (ZIO_CHAN_TYPES + 3)
+
+#define ICM20948_FS_TYPE (ZIO_CHAN_TYPES + 2)
+#define ICM20948_FS_ACCEL_IDX 0
+#define ICM20948_FS_GYRO_IDX 1
 
 
 struct icm20948_datum{

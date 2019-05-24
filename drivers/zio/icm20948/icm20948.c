@@ -92,11 +92,11 @@ static struct icm_20948_data {
 icm_20948_data = { 
     .dev_attrs = { 
         { 
-            .type = ICM20948_ACCEL_FS_TYPE,
+            .type = ICM20948_FS_TYPE,
             .data = zio_variant_u8(ICM20948_ACCEL_FS_DEFAULT)
         },
         { 
-            .type = ICM20948_GYRO_FS_TYPE,
+            .type = ICM20948_FS_TYPE,
             .data = zio_variant_u8(ICM20948_GYRO_FS_DEFAULT) 
         } 
     } 
@@ -132,9 +132,43 @@ int icm20948_init(struct device *dev)
 	}
 }
 
+static inline int icm20948_set_gyro_fs(device *dev,enum icm20948_gyro_fs gyro_fs)
+{
+	
+	return 0;
+}
+
+static inline int icm20948_set_acc_fs(device *dev, enum icm20948_gyro_fs gyro_fs)
+{
+	return 0;
+}
+
+
 static int icm20948_set_attr(struct device *dev, const u32_t attr_idx, 
                 const struct zio_variant val)
 {
+	int res = 0;
+	u8_t value;
+	switch (attr_idx)
+	{
+		case ICM20948_FS_ACCEL_IDX:
+			__ASSERT((value & ~ICM20948_ACCEL_MASK) == 0,"Unknown FS maks for accel.");
+			if (zio_variant_unwrap(val, value) != 0) {
+				return -EINVAL;
+			}
+			return icm20948_set_acc_fs(value);
+			break;
+		case ICM20948_FS_GYRO_IDX:
+			__ASSERT((value & ~ICM20948_GYRO_MASK) == 0,"Unknown FS maks for accel.");
+			if (zio_variant_unwrap(val, value) != 0) {
+				return -EINVAL;
+			}
+			return icm20948_set_gyro_fs(value);
+			break;
+		
+		default:
+			break;
+	}
 }
 
 static int icm20948_get_attr(struct device *dev, u32_t attr_idx,

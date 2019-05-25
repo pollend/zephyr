@@ -24,6 +24,80 @@
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
 LOG_MODULE_REGISTER(SYNTH);
 
+
+ZIO_DEVICE_ATTR_SET(synth,sample_rate) {
+	struct synth_data *drv_data = dev->driver_data;
+	u32_t sample_rate = 0;
+	if (zio_variant_unwrap(val, sample_rate) != 0) {
+		return -EINVAL;
+	}
+	drv_data->sample_rate = sample_rate;
+	return 0;
+}
+
+ZIO_DEVICE_ATTR_GET(synth,sample_rate) {
+	struct synth_data *drv_data = dev->driver_data;
+	*var = zio_variant_wrap(drv_data->sample_rate);
+	return 0;
+}
+
+ZIO_CHANNEL_ATTR_SET(synth,frequency) {
+	u32_t sample_frequency = 0;
+	if(zio_variant_unwrap(val, sample_frequency) != 0){
+		return -EINVAL;
+	}
+	struct synth_data *drv_data = dev->driver_data;
+	drv_data->frequencies[chan_idx] = sample_frequency;
+	return 0;
+}
+
+ZIO_CHANNEL_ATTR_GET(synth,frequency) {
+	struct synth_data *drv_data = dev->driver_data;
+	*var = zio_variant_wrap(drv_data->frequencies[chan_idx]);
+	return 0;
+}
+
+
+ZIO_CHANNEL_ATTR_GET(synth,phase) {
+	struct synth_data *drv_data = dev->driver_data;
+	*var = zio_variant_wrap(drv_data->phases[chan_idx]);
+	return 0;
+}
+
+ZIO_CHANNEL_ATTR_SET(synth,phase) {
+	u32_t sample_frequency = 0;
+	if(zio_variant_unwrap(val, sample_frequency) != 0){
+		return -EINVAL;
+	}
+	struct synth_data *drv_data = dev->driver_data;
+	drv_data->phases[chan_idx] = sample_frequency;
+	return 0;
+}
+
+static const struct zio_device_attr_desc dev_attr_descs[1] = {
+	{
+		.type = ZIO_SAMPLE_RATE,
+		.data_type = zio_variant_float,
+		.get_attr = synth_sample_rate_get,
+		.set_attr = synth_sample_rate_set
+	}
+};
+
+static const struct zio_channel_attr_desc chans_attr_descs[2] = {
+	{
+		.type = SYNTH_FREQUENCY,
+		.data_type = zio_variant_float,
+		.get_attr = synth_frequency_get,
+		.set_attr = synth_frequency_set
+	},
+	{
+		.type = SYNTH_PHASE,
+		.data_type = zio_variant_float,
+		.get_attr = synth_phase_get,
+		.set_attr = synth_phase_set
+	},	
+}
+
 static const struct zio_chan_desc synth_chans[2] = {
 	{
 		.name = "Left",
@@ -32,6 +106,8 @@ static const struct zio_chan_desc synth_chans[2] = {
 		.byte_size = 2,
 		.byte_order = ZIO_BYTEORDER_ARCH,
 		.sign_bit = ZIO_SIGN_MSB,
+		.attributes = &chans_attr_descs,
+		.attribute_length = 2 
 	},
 	{
 		.name = "Right",
@@ -40,40 +116,10 @@ static const struct zio_chan_desc synth_chans[2] = {
 		.byte_size = 2,
 		.byte_order = ZIO_BYTEORDER_ARCH,
 		.sign_bit = ZIO_SIGN_MSB,
+		.attributes = &chans_attr_descs,
+		.attribute_length = 2
 	}
 };
-
-
-static const struct zio_attr_desc dev_attr_descs[1] = {
-	{
-		.type = ZIO_SAMPLE_RATE,
-		.data_type = zio_variant_float,
-	}
-};
-
-static const struct zio_attr_desc chans_attr_descs[2][2] = {
-	{
-		{
-			.type = SYNTH_FREQUENCY,
-			.data_type = zio_variant_float,
-		},
-		{
-			.type = SYNTH_PHASE,
-			.data_type = zio_variant_float,
-		},
-	},
-	{
-		{
-			.type = SYNTH_FREQUENCY,
-			.data_type = zio_variant_float,
-		},
-		{
-			.type = SYNTH_PHASE,
-			.data_type = zio_variant_float,
-		}
-	},
-};
-
 
 static struct synth_data {
 	u32_t last_timestamp;
@@ -99,72 +145,6 @@ synth_data = {
 	.fifo = ZIO_FIFO_BUF_INITIALIZER(synth_data.fifo, struct synth_datum, CONFIG_SYNTH_FIFO_SIZE),
 };
 
-static int synth_set_attr(struct device *dev, const u32_t attr_idx,
-		const struct zio_variant val)
-{
-	struct synth_data *drv_data = dev->driver_data;
-
-	int res = 0;
-	u32_t sample_rate = 0;
-
-	switch (attr_idx) {
-	case SYNTH_SAMPLE_RATE_IDX:
-		res = zio_variant_unwrap(val, sample_rate);
-		if (res != 0) {
-			return -EINVAL;
-		}
-		drv_data->sample_rate = sample_rate;
-		return 0;
-	default:
-		return -EINVAL;
-	}
-}
-
-static int synth_get_attr(struct device *dev, u32_t attr_idx,
-		struct zio_variant *var)
-{
-	struct synth_data *drv_data = dev->driver_data;
-
-	switch (SYNTH_SAMPLE_RATE_IDX) {
-	case 0:
-		*var = zio_variant_wrap(drv_data->sample_rate);
-		return 0;
-	default:
-		return -EINVAL;
-	}
-}
-
-static int synth_get_attr_descs(struct device *dev,
-		const struct zio_attr_desc **attrs,
-		u32_t *num_attrs)
-{
-	*attrs = dev_attr_descs;
-	*num_attrs = sizeof(dev_attr_descs);
-	return 0;
-}
-
-static int synth_get_chan_attr_descs(struct device *dev,
-		const u32_t chan_idx,
-		const struct zio_attr_desc **descs,
-		u32_t *num_chans)
-{
-	if (chan_idx >= sizeof(synth_chans)) {
-		return -EINVAL;
-	}
-
-	*descs = chans_attr_descs[chan_idx];
-	*num_chans = sizeof(chans_attr_descs[chan_idx]);
-	return 0;
-}
-
-static int synth_get_chan_descs(struct device *dev,
-		const struct zio_chan_desc **chans,
-		u32_t *num_chans)
-{
-	*chans = synth_chans;
-	*num_chans = sizeof(synth_chans);
-	return 0;
-}
 
 static int synth_generate(struct device *dev, u32_t n)
 {
@@ -220,11 +200,12 @@ static int synth_detach_buf(struct device *dev)
 }
 
 static const struct zio_dev_api synth_driver_api = {
-	.set_attr = synth_set_attr,
-	.get_attr = synth_get_attr,
-	.get_attr_descs = synth_get_attr_descs,
-	.get_chan_descs = synth_get_chan_descs,
-	.get_chan_attr_descs = synth_get_chan_attr_descs,
+	.channel_length = 2,
+	.channels = &synth_chans,
+
+	.device_attributes_length = 1,
+	.device_attributes = &dev_attr_descs,
+
 	.trigger = synth_trigger,
 	.attach_buf = synth_attach_buf,
 	.detach_buf = synth_detach_buf

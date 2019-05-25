@@ -66,6 +66,7 @@
 extern "C" {
 #endif
 
+
 /**
  * @brief ZIO device API definitions.
  * @defgroup zio_device ZIO device definitions
@@ -130,6 +131,9 @@ struct zio_chan_desc {
 	 */
 	const u8_t byte_size;
 
+	const int attribute_length;
+	const zio_channel_attr_desc* attributes;
+
 	/**
 	 * Byte ordering of channel data
 	 */
@@ -169,55 +173,7 @@ enum zio_attr_type {
 	ZIO_ATTR_TYPE_MAKE_16_BIT = 0xFFFF
 };
 
-/** Attribute record. */
-struct zio_attr_desc {
-	/* Attribute type, describing what it is such as the sample rate */
-	enum zio_attr_type type;
 
-	/* Attribute data type describing the expected data type. */
-	enum zio_variant_type data_type;
-};
-
-/**
- * @brief Function to set a device attribute
- *
- * @return -EINVAL if an invalid attribute id was given, 0 otherwise
- */
-typedef int (*zio_dev_set_attr_t)(struct device *dev, const u32_t attr_idx,
-				  const struct zio_variant var);
-
-/**
- * @brief Function to get a device attribute
- *
- * @return -EINVAL if an invalid attribute id was given, 0 otherwise
- */
-typedef int (*zio_dev_get_attr_t)(struct device *dev, uint32_t attr_idx,
-				  struct zio_variant *attr);
-
-
-/**
- * @brief Function to get a pointer to the array of attribute descriptions
- */
-typedef int (*zio_dev_get_attr_descs_t)(struct device *dev,
-				   const struct zio_attr_desc **attrs,
-				   u32_t *num_attrs);
-
-/**
- * @brief Function to get a pointer to the array of channel descriptions
- */
-typedef int (*zio_dev_get_chan_descs_t)(struct device *dev,
-				   const struct zio_chan_desc **chans,
-				   u32_t *num_chans);
-
-/**
- * @brief Function to get a channels attribute descriptions
- *
- * @return -EINVAL if an invalid channel id was given, 0 otherwise
- */
-typedef int (*zio_chan_get_attr_descs_t)(struct device *dev,
-				   const u32_t chan_idx,
-				   const struct zio_attr_desc **attrs,
-				   u32_t *num_attrs);
 
 /**
  * @brief Function to set a channel attribute for a device
@@ -225,17 +181,52 @@ typedef int (*zio_chan_get_attr_descs_t)(struct device *dev,
  * @return -EINVAL if an invalid attribute id, type, or range was given,
  * 0 otherwise
  */
-typedef int (*zio_chan_set_attr_t)(struct device *dev, const u32_t chan_idx,
-				   const u32_t attr_idx,
-				   const struct zio_variant var);
+typedef int (*zio_chan_set_attr_t)(struct device *dev, const u32_t chan_idx,const struct zio_variant var);
 /**
  * @brief Function to get a channel attribute for a device
  *
  * @return -EINVAL if an invalid attribute id was given, 0 otherwise
  */
-typedef int (*zio_chan_get_attr_t)(struct device *dev, const u32_t chan_idx,
-					const u32_t attr_idx,
-					struct zio_variant *var);
+typedef int (*zio_chan_get_attr_t)(struct device *dev, const u32_t chan_idx,struct zio_variant *var);
+
+
+/** Attribute record. */
+struct zio_channel_attr_desc {
+	zio_chan_set_attr_t set_attr;
+	zio_chan_get_attr_t get_attr;
+
+	/* Attribute type, describing what it is such as the sample rate */
+	enum zio_attr_type type;
+
+	/* Attribute data type describing the expected data type. */
+	enum zio_variant_type data_type;
+};
+
+
+/**
+ * @brief Function to set a device attribute
+ *
+ * @return -EINVAL if an invalid attribute id was given, 0 otherwise
+ */
+typedef int (*zio_dev_set_attr_t)(struct device *dev, const struct zio_variant var);
+
+/**
+ * @brief Function to get a device attribute
+ *
+ * @return -EINVAL if an invalid attribute id was given, 0 otherwise
+ */
+typedef int (*zio_dev_get_attr_t)(struct device *dev, struct zio_variant *attr);
+
+struct zio_device_attr_desc {
+	zio_dev_set_attr_t set_attr;
+	zio_dev_get_attr_t get_attr;
+	
+	/* Attribute type, describing what it is such as the sample rate */
+	enum zio_attr_type type;
+
+	/* Attribute data type describing the expected data type. */
+	enum zio_variant_type data_type;
+};
 
 /**
  * @brief Function to enable a channel for a device
@@ -303,14 +294,12 @@ typedef int (*zio_dev_detach_buf_t)(struct device *dev);
  * @brief Functions for ZIO device implementations
  */
 struct zio_dev_api {
-	zio_dev_set_attr_t set_attr;
-	zio_dev_get_attr_t get_attr;
-	zio_dev_get_attr_descs_t get_attr_descs;
+	uint16_t device_attributes_length;
+	zio_device_attr_desc* device_channels;
 
-	zio_dev_get_chan_descs_t get_chan_descs;
-	zio_chan_get_attr_descs_t get_chan_attr_descs;
-	zio_chan_set_attr_t set_chan_attr;
-	zio_chan_get_attr_t get_chan_attr;
+	uint16_t channel_length;
+	zio_chan_desc* channels;
+
 	zio_chan_enable_t enable_chan;
 	zio_chan_disable_t disable_chan;
 	zio_chan_is_enabled_t is_chan_enabled;
@@ -348,6 +337,14 @@ struct zio_dev_api {
 		res; \
 	})
 
+
+
+#define ZIO_DEVICE_ATTR_GET(DEVICE, NAME) static int * DEVICE ## _ ## NAME ## _ ## get (struct device *dev, struct zio_variant *var)
+#define ZIO_DEVICE_ATTR_SET(DEVICE, NAME) static int * DEVICE ## _ ## NAME ## _ ## set (struct device *dev, const struct zio_variant var)
+
+#define ZIO_CHANNEL_ATTR_GET(DEVICE, NAME) static int * DEVICE ## _ ## NAME ## _ ## get (struct device *dev,const u32_t chan_idx, struct zio_variant *var)
+#define ZIO_CHANNEL_ATTR_SET(DEVICE, NAME) static int * DEVICE ## _ ## NAME ## _ ## set (struct device *dev,const u32_t chan_idx, const struct zio_variant var)
+
 /**
  * @brief Get a device attribute value
  *
@@ -372,6 +369,7 @@ struct zio_dev_api {
 			res; \
 		} \
 	})
+
 
 /**
  * @brief Get the all of the device attributes
@@ -442,6 +440,21 @@ static inline int zio_dev_trigger(struct device *dev)
 		return -ENOTSUP;
 	}
 	return api->trigger(dev);
+}
+
+
+static inline zio_chan_desc* get_channel(struct device *dev,const char* name){
+	const struct zio_dev_api *api = dev->driver_api;
+	
+	for(int i = 0; i < api->device_channels; i++){
+		zio_device_attr_desc* api->device_channels[i];
+
+		if(str_cmp(name,api->device_channels[i]->name)){
+			return 
+		}
+
+
+	}
 }
 
 /**

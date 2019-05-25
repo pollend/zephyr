@@ -22,56 +22,66 @@
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
 LOG_MODULE_REGISTER(ICM20948);
 
-static const struct zio_dev_chan icm_chans[] = {
+
+static const struct zio_attr_desc dev_attr_acc_descs[1] = {
 	{
-		.name = "ACCEL_X",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
-	},
-	{
-		.name = "ACCEL_Y",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
-	},
-	{
-		.name = "ACCEL_Z",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
-	},
-	{
-		.name = "GYRO_X",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
-	},
-	{
-		.name = "GYRO_Y",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
-	},
-	{
-		.name = "GYRO_Z",
-		.type = ICM20948_COORD_TYPE,
-		.bit_width = 16,
-		.byte_size = 2,
-		.byte_order = ZIO_BYTEORDER_ARCH,
-		.sign_bit = ZIO_SIGN_MSB,
+		.type = ICM20948_FS_TYPE
+		.data_type = zio_variant_s8
 	}
 };
+
+static const struct zio_attr_desc dev_attr_gyro_descs[1] = {
+	{
+		.type = ICM20948_FS_TYPE
+		.data_type = zio_variant_s8
+	}
+};
+
+
+static const struct zio_chan_desc icm_20948_chans[2] = {
+	{
+		.name = "ACCEL",
+		.type = ICM20948_COORD_TYPE,
+		.bit_width = 16 * 3,
+		.byte_size = 2,
+		.byte_order = ZIO_BYTEORDER_ARCH,
+		.sign_bit = ZIO_SIGN_MSB,
+		.attribute_length = 1,
+		.attributes = &dev_attr_acc_descs
+	},
+	{
+		.name = "GYRO",
+		.type = ICM20948_COORD_TYPE,
+		.bit_width = 16 * 3,
+		.byte_size = 2,
+		.byte_order = ZIO_BYTEORDER_ARCH,
+		.sign_bit = ZIO_SIGN_MSB,
+		.attribute_length = 1,
+		.attributes = &dev_attr_gyro_descs
+	}
+}
+
+
+
+static const struct zio_attr_desc dev_attr_descs[0] = {
+};
+
+static const struct zio_attr_desc dev_attr_descs[2][1] = {
+	{
+		{
+			.type = ICM20948_FS_TYPE
+			.data_type = zio_variant_s8
+		},
+	},
+	{
+		{
+			.type = ICM20948_FS_TYPE
+			.data_type = zio_variant_s8
+		}
+	}
+};
+
+
 
 static struct icm_20948_data {
 	// bus and hardware access function

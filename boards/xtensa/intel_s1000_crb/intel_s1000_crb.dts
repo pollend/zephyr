@@ -2,7 +2,7 @@
 
 /dts-v1/;
 
-#include "intel_s1000.dtsi"
+#include <intel/intel_s1000.dtsi>
 
 / {
 	model = "intel_s1000_crb";
@@ -20,13 +20,21 @@
 	};
 };
 
+&cpu0 {
+	clock-frequency = <400000000>;
+};
+
+&cpu1 {
+	clock-frequency = <400000000>;
+};
+
 &uart0 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };
 
 &i2c0 {
-	status = "ok";
+	status = "okay";
 	clock-frequency = <I2C_BITRATE_FAST>;
 
 	codec0: tlv320dac@18 {
@@ -38,7 +46,7 @@
 };
 
 &spi0 {
-	status = "ok";
+	status = "okay";
 
 	flash0: flash@0 {
 		compatible = "jedec,spi-nor";

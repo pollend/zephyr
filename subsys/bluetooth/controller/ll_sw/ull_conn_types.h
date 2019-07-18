@@ -37,6 +37,7 @@ struct ll_conn {
 
 		struct {
 			u8_t fex_valid:1;
+			u32_t force;
 			u32_t ticks_to_offset;
 		} slave;
 
@@ -200,6 +201,11 @@ struct ll_conn {
 	u8_t phy_pref_flags:1;
 	u8_t phy_pref_rx:3;
 #endif /* CONFIG_BT_CTLR_PHY */
+
+#if defined(CONFIG_BT_CTLR_LLID_DATA_START_EMPTY)
+	/* Detect empty L2CAP start frame */
+	u8_t  start_empty:1;
+#endif /* CONFIG_BT_CTLR_LLID_DATA_START_EMPTY */
 
 	struct node_tx *tx_head;
 	struct node_tx *tx_ctrl;

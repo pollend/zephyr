@@ -68,12 +68,13 @@ arduino_serial: &uart3 {};
 	is25wp064: is25wp064@0 {
 		compatible = "issi,is25wp064", "jedec,spi-nor";
 		reg = <0>;
-		status = "ok";
+		status = "okay";
+		jedec-id = <0x9d 0x70 0x17>;
 	};
 };
 
 &lcdif1 {
-	status = "ok";
+	status = "okay";
 	port {
 		lcd_panel_out: endpoint {
 			remote-endpoint = <&lcd_panel_in>;
@@ -82,10 +83,10 @@ arduino_serial: &uart3 {};
 };
 
 &i2c1 {
-	status = "ok";
+	status = "okay";
 };
 
 &uart1 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };

@@ -65,17 +65,10 @@
 # https://cmake.org/cmake/help/latest/command/target_sources.html
 function(zephyr_sources)
   foreach(arg ${ARGV})
-    if(IS_ABSOLUTE ${arg})
-      set(path ${arg})
-    else()
-      set(path ${CMAKE_CURRENT_SOURCE_DIR}/${arg})
-    endif()
-
-    if(IS_DIRECTORY ${path})
+    if(IS_DIRECTORY ${arg})
       message(FATAL_ERROR "zephyr_sources() was called on a directory")
     endif()
-
-    target_sources(zephyr PRIVATE ${path})
+    target_sources(zephyr PRIVATE ${arg})
   endforeach()
 endfunction()
 
@@ -332,7 +325,7 @@ endmacro()
 # or zephyr_library_named. The constructors create a CMake library
 # with a name accessible through the variable ZEPHYR_CURRENT_LIBRARY.
 #
-# The variable ZEPHYR_CURRENT_LIBRARY should seldomly be needed since
+# The variable ZEPHYR_CURRENT_LIBRARY should seldom be needed since
 # the zephyr libraries have methods that modify the libraries. These
 # methods have the signature: zephyr_library_<target-function>
 #
@@ -830,7 +823,7 @@ endfunction()
 #    _mysection_size = ABSOLUTE(_mysection_end - _mysection_start);
 #
 # When placing into SECTIONS or RAM_SECTIONS, the files must instead define
-# their own output sections to acheive the same thing:
+# their own output sections to achieve the same thing:
 #    SECTION_PROLOGUE(.mysection,,)
 #    {
 #        _mysection_start = .;
@@ -1336,7 +1329,7 @@ endmacro()
 #   assert_not(OBSOLETE_VAR "OBSOLETE_VAR has been removed; use NEW_VAR instead")
 #
 # will cause a FATAL_ERROR and print an error message if the first
-# espression is true
+# expression is true
 macro(assert_not test comment)
   if(${test})
     message(FATAL_ERROR "Assertion failed: ${comment}")

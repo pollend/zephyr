@@ -23,8 +23,8 @@
 #include <string.h>
 #include <zephyr/types.h>
 #include <stdbool.h>
-#include <misc/util.h>
-#include <misc/byteorder.h>
+#include <sys/util.h>
+#include <sys/byteorder.h>
 #include <toolchain.h>
 
 #include <net/net_linkaddr.h>
@@ -44,13 +44,15 @@ extern "C" {
 #define PF_INET6        2          /**< IP protocol family version 6. */
 #define PF_PACKET       3          /**< Packet family.                */
 #define PF_CAN          4          /**< Controller Area Network.      */
+#define PF_NET_MGMT     5          /**< Network management info.      */
 
 /* Address families. */
-#define AF_UNSPEC       PF_UNSPEC  /**< Unspecified address family.   */
-#define AF_INET         PF_INET    /**< IP protocol family version 4. */
-#define AF_INET6        PF_INET6   /**< IP protocol family version 6. */
-#define AF_PACKET       PF_PACKET  /**< Packet family.                */
-#define AF_CAN          PF_CAN     /**< Controller Area Network.      */
+#define AF_UNSPEC      PF_UNSPEC   /**< Unspecified address family.   */
+#define AF_INET        PF_INET     /**< IP protocol family version 4. */
+#define AF_INET6       PF_INET6    /**< IP protocol family version 6. */
+#define AF_PACKET      PF_PACKET   /**< Packet family.                */
+#define AF_CAN         PF_CAN      /**< Controller Area Network.      */
+#define AF_NET_MGMT    PF_NET_MGMT /**< Network management info.      */
 
 /** Protocol numbers from IANA/BSD */
 enum net_ip_protocol {
@@ -1171,7 +1173,7 @@ struct sockaddr_can_ptr *net_can_ptr(const struct sockaddr_ptr *addr)
  *
  * @return 0 if ok, < 0 if error
  */
-int net_addr_pton(sa_family_t family, const char *src, void *dst);
+__syscall int net_addr_pton(sa_family_t family, const char *src, void *dst);
 
 /**
  * @brief Convert IP address to string form.
@@ -1184,8 +1186,8 @@ int net_addr_pton(sa_family_t family, const char *src, void *dst);
  *
  * @return dst pointer if ok, NULL if error
  */
-char *net_addr_ntop(sa_family_t family, const void *src,
-		    char *dst, size_t size);
+__syscall char *net_addr_ntop(sa_family_t family, const void *src,
+			      char *dst, size_t size);
 
 /**
  * @brief Parse a string that contains either IPv4 or IPv6 address
@@ -1318,9 +1320,21 @@ static inline u8_t net_priority2vlan(enum net_priority priority)
 	return (u8_t)net_vlan2priority(priority);
 }
 
+/**
+ * @brief Return network address family value as a string. This is only usable
+ * for debugging.
+ *
+ * @param family Network address family code
+ *
+ * @return Network address family as a string, or NULL if family is unknown.
+ */
+const char *net_family2str(sa_family_t family);
+
 #ifdef __cplusplus
 }
 #endif
+
+#include <syscalls/net_ip.h>
 
 /**
  * @}

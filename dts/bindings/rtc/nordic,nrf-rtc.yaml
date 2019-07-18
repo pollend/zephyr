@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
----
+
 title: Nordic nRF Real Time Counter
 version: 0.1
 
@@ -18,9 +18,6 @@ properties:
       constraint: "nordic,nrf-rtc"
 
     reg:
-      type: array
-      description: mmio register space
-      generation: define
       category: required
 
     #If enabled, overflow different than full range (24 bits) is handled
@@ -30,6 +27,4 @@ properties:
     ppi-wrap:
       type: boolean
       description: Enable wrapping with PPI
-      generation: define
       category: required
-...

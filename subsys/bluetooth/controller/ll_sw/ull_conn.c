@@ -7,9 +7,9 @@
 #include <stddef.h>
 #include <zephyr.h>
 #include <device.h>
-#include <entropy.h>
+#include <drivers/entropy.h>
 #include <bluetooth/bluetooth.h>
-#include <misc/byteorder.h>
+#include <sys/byteorder.h>
 
 #include "hal/ecb.h"
 #include "hal/ccm.h"
@@ -43,14 +43,18 @@
 #include "hal/debug.h"
 
 static int init_reset(void);
-static void ticker_op_update_cb(u32_t status, void *param);
+static void ticker_update_conn_op_cb(u32_t status, void *param);
 static inline void disable(u16_t handle);
 static void conn_cleanup(struct ll_conn *conn);
+
+#if defined(CONFIG_BT_CTLR_LLID_DATA_START_EMPTY)
+static int empty_data_start_release(struct ll_conn *conn, struct node_tx *tx);
+#endif /* CONFIG_BT_CTLR_LLID_DATA_START_EMPTY */
+
 static void ctrl_tx_enqueue(struct ll_conn *conn, struct node_tx *tx);
 static inline void event_fex_prep(struct ll_conn *conn);
 static inline void event_vex_prep(struct ll_conn *conn);
-static inline int event_conn_upd_prep(struct ll_conn *conn,
-				      u16_t event_counter,
+static inline int event_conn_upd_prep(struct ll_conn *conn, u16_t lazy,
 				      u32_t ticks_at_expire);
 static inline void event_ch_map_prep(struct ll_conn *conn,
 				     u16_t event_counter);
@@ -89,7 +93,8 @@ static inline void ctrl_tx_ack(struct ll_conn *conn, struct node_tx **tx,
 			       struct pdu_data *pdu_tx);
 static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 			  struct pdu_data *pdu_rx, struct ll_conn *conn);
-static void ticker_op_cb(u32_t status, void *params);
+static void ticker_stop_conn_op_cb(u32_t status, void *param);
+static void ticker_start_conn_op_cb(u32_t status, void *param);
 
 #define CONN_TX_BUF_SIZE MROUND(offsetof(struct node_tx, pdu) + \
 				offsetof(struct pdu_data, lldata) + \
@@ -101,7 +106,8 @@ static void ticker_op_cb(u32_t status, void *params);
 				     sizeof(struct pdu_data_llctrl))
 
 static MFIFO_DEFINE(conn_tx, sizeof(struct lll_tx), CONFIG_BT_CTLR_TX_BUFFERS);
-static MFIFO_DEFINE(conn_ack, sizeof(struct lll_tx), CONFIG_BT_CTLR_TX_BUFFERS);
+static MFIFO_DEFINE(conn_ack, sizeof(struct lll_tx),
+		    (CONFIG_BT_CTLR_TX_BUFFERS + CONN_TX_CTRL_BUFFERS));
 
 
 static struct {
@@ -759,14 +765,7 @@ int ull_conn_llcp(struct ll_conn *conn, u32_t ticks_at_expire, u16_t lazy)
 		switch (conn->llcp_type) {
 		case LLCP_CONN_UPD:
 		{
-			struct lll_conn *lll = &conn->lll;
-			u16_t event_counter;
-
-			/* Calculate current event counter */
-			event_counter = lll->event_counter +
-					lll->latency_prepare + lazy;
-
-			if (event_conn_upd_prep(conn, event_counter,
+			if (event_conn_upd_prep(conn, lazy,
 						ticks_at_expire) == 0) {
 				return -ECANCELED;
 			}
@@ -1007,16 +1006,13 @@ void ull_conn_done(struct node_rx_event_done *done)
 				if (latency_event) {
 					force = 1U;
 				} else {
-					/* FIXME:*/
-					#if 0
-					force = lll->slave.force & 0x01;
+					force = conn->slave.force & 0x01;
 
 					/* rotate force bits */
-					lll->slave.force >>= 1;
+					conn->slave.force >>= 1;
 					if (force) {
-						lll->slave.force |= BIT(31);
+						conn->slave.force |= BIT(31);
 					}
-					#endif
 				}
 			}
 		} else {
@@ -1139,7 +1135,7 @@ void ull_conn_done(struct node_rx_event_done *done)
 					      ticks_drift_plus,
 					      ticks_drift_minus, 0, 0,
 					      lazy, force,
-					      ticker_op_update_cb,
+					      ticker_update_conn_op_cb,
 					      conn);
 		LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
 			  (ticker_status == TICKER_STATUS_BUSY) ||
@@ -1158,9 +1154,15 @@ void ull_conn_tx_demux(u8_t count)
 			break;
 		}
 
-		conn = ll_conn_get(lll_tx->handle);
-		if (conn->lll.handle == lll_tx->handle) {
+		conn = ll_connected_get(lll_tx->handle);
+		if (conn) {
 			struct node_tx *tx = lll_tx->node;
+
+#if defined(CONFIG_BT_CTLR_LLID_DATA_START_EMPTY)
+			if (empty_data_start_release(conn, tx)) {
+				goto ull_conn_tx_demux_release;
+			}
+#endif /* CONFIG_BT_CTLR_LLID_DATA_START_EMPTY */
 
 			tx->next = NULL;
 			if (!conn->tx_data) {
@@ -1183,6 +1185,10 @@ void ull_conn_tx_demux(u8_t count)
 			p->ll_id = PDU_DATA_LLID_RESV;
 			ll_tx_ack_put(0xFFFF, tx);
 		}
+
+#if defined(CONFIG_BT_CTLR_LLID_DATA_START_EMPTY)
+ull_conn_tx_demux_release:
+#endif /* CONFIG_BT_CTLR_LLID_DATA_START_EMPTY */
 
 		MFIFO_DEQUEUE(conn_tx);
 	} while (--count);
@@ -1309,7 +1315,6 @@ void ull_conn_lll_tx_flush(void *param)
 	link = memq_dequeue(lll->memq_tx.tail, &lll->memq_tx.head,
 			    (void **)&tx);
 	while (link) {
-		struct pdu_data *p;
 		struct lll_tx *lll_tx;
 		u8_t idx;
 
@@ -1320,8 +1325,6 @@ void ull_conn_lll_tx_flush(void *param)
 		lll_tx->node = tx;
 		link->next = tx->next;
 		tx->link = link;
-		p = (void *)tx->pdu;
-		p->ll_id = PDU_DATA_LLID_RESV;
 
 		MFIFO_ENQUEUE(conn_ack, idx);
 
@@ -1330,27 +1333,39 @@ void ull_conn_lll_tx_flush(void *param)
 	}
 }
 
-void ull_conn_tx_ack(struct ll_conn *conn, memq_link_t *link,
-		     struct node_tx *tx)
+struct ll_conn *ull_conn_tx_ack(u16_t handle, memq_link_t *link,
+				struct node_tx *tx)
 {
+	struct ll_conn *conn = NULL;
 	struct pdu_data *pdu_tx;
 
 	pdu_tx = (void *)tx->pdu;
 	LL_ASSERT(pdu_tx->len);
 
 	if (pdu_tx->ll_id == PDU_DATA_LLID_CTRL) {
-		ctrl_tx_ack(conn, &tx, pdu_tx);
+		if (handle != 0xFFFF) {
+			conn = ll_conn_get(handle);
+
+			ctrl_tx_ack(conn, &tx, pdu_tx);
+		}
 
 		/* release mem if points to itself */
 		if (link->next == (void *)tx) {
 			mem_release(tx, &mem_conn_tx_ctrl.free);
-			return;
+
+			return conn;
 		} else if (!tx) {
-			return;
+			return conn;
 		}
+	} else if (handle != 0xFFFF) {
+		conn = ll_conn_get(handle);
+	} else {
+		pdu_tx->ll_id = PDU_DATA_LLID_RESV;
 	}
 
-	ll_tx_ack_put(conn->lll.handle, tx);
+	ll_tx_ack_put(handle, tx);
+
+	return conn;
 }
 
 u8_t ull_conn_llcp_req(void *conn)
@@ -1413,9 +1428,14 @@ static int init_reset(void)
 	return 0;
 }
 
-static void ticker_op_update_cb(u32_t status, void *param)
+static void ticker_update_conn_op_cb(u32_t status, void *param)
 {
+	/* Slave drift compensation succeeds, or it fails in a race condition
+	 * when disconnecting or connection update (race between ticker_update
+	 * and ticker_stop calls).
+	 */
 	LL_ASSERT(status == TICKER_STATUS_SUCCESS ||
+		  param == ull_update_mark_get() ||
 		  param == ull_disable_mark_get());
 }
 
@@ -1496,6 +1516,29 @@ static void conn_cleanup(struct ll_conn *conn)
 	lll->handle = 0xFFFF;
 }
 
+#if defined(CONFIG_BT_CTLR_LLID_DATA_START_EMPTY)
+static int empty_data_start_release(struct ll_conn *conn, struct node_tx *tx)
+{
+	struct pdu_data *p = (void *)tx->pdu;
+
+	if ((p->ll_id == PDU_DATA_LLID_DATA_START) && !p->len) {
+		conn->start_empty = 1U;
+
+		ll_tx_ack_put(conn->lll.handle, tx);
+
+		return -EINVAL;
+	} else if (p->len && conn->start_empty) {
+		conn->start_empty = 0U;
+
+		if (p->ll_id == PDU_DATA_LLID_DATA_CONTINUE) {
+			p->ll_id = PDU_DATA_LLID_DATA_START;
+		}
+	}
+
+	return 0;
+}
+#endif /* CONFIG_BT_CTLR_LLID_DATA_START_EMPTY */
+
 static void ctrl_tx_last_enqueue(struct ll_conn *conn,
 				      struct node_tx *tx)
 {
@@ -1524,7 +1567,7 @@ static void ctrl_tx_enqueue(struct ll_conn *conn, struct node_tx *tx)
 		 * by peer, hence place this new ctrl after head
 		 */
 
-		/* if data transmited once, keep it at head of the tx list,
+		/* if data transmitted once, keep it at head of the tx list,
 		 * as we will insert a ctrl after it, hence advance the
 		 * data pointer
 		 */
@@ -1560,7 +1603,7 @@ static void ctrl_tx_enqueue(struct ll_conn *conn, struct node_tx *tx)
 	}
 
 	/* Update last pointer if ctrl added at end of tx list */
-	if (tx->next == 0) {
+	if (!tx->next) {
 		conn->tx_data_last = tx;
 	}
 }
@@ -1713,12 +1756,14 @@ static inline void event_conn_upd_init(struct ll_conn *conn,
 #endif /* !CONFIG_BT_CTLR_SCHED_ADVANCED */
 }
 
-static inline int event_conn_upd_prep(struct ll_conn *conn,
-				      u16_t event_counter,
+static inline int event_conn_upd_prep(struct ll_conn *conn, u16_t lazy,
 				      u32_t ticks_at_expire)
 {
+	struct lll_conn *lll = &conn->lll;
 	struct ll_conn *conn_upd;
 	u16_t instant_latency;
+	u16_t event_counter;
+
 
 	conn_upd = conn_upd_curr;
 
@@ -1726,6 +1771,9 @@ static inline int event_conn_upd_prep(struct ll_conn *conn,
 	if (!conn_upd) {
 		conn_upd_curr = conn;
 	}
+
+	/* Calculate current event counter */
+	event_counter = lll->event_counter + lll->latency_prepare + lazy;
 
 	instant_latency = (event_counter - conn->llcp.conn_upd.instant) &
 			  0xffff;
@@ -1792,7 +1840,6 @@ static inline int event_conn_upd_prep(struct ll_conn *conn,
 		u32_t ticks_win_offset;
 		u32_t conn_interval_us;
 		struct node_rx_pdu *rx;
-		struct lll_conn *lll;
 		u8_t ticker_id_conn;
 		u32_t ticker_status;
 		u32_t periodic_us;
@@ -1876,6 +1923,7 @@ static inline int event_conn_upd_prep(struct ll_conn *conn,
 			ticks_at_expire -= HAL_TICKER_US_TO_TICKS(
 				(conn_interval_old - conn_interval_new) * 1250U);
 		}
+		lll->latency_prepare += lazy;
 		lll->latency_prepare -= (instant_latency - latency);
 
 		/* calculate the offset, window widening and interval */
@@ -1961,8 +2009,9 @@ static inline int event_conn_upd_prep(struct ll_conn *conn,
 		ticker_id_conn = TICKER_ID_CONN_BASE + ll_conn_handle_get(conn);
 		ticker_status =	ticker_stop(TICKER_INSTANCE_ID_CTLR,
 					    TICKER_USER_ID_ULL_HIGH,
-					    ticker_id_conn, ticker_op_cb,
-					    (void *)__LINE__);
+					    ticker_id_conn,
+					    ticker_stop_conn_op_cb,
+					    (void *)conn);
 		LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
 			  (ticker_status == TICKER_STATUS_BUSY));
 		ticker_status =
@@ -1982,7 +2031,8 @@ static inline int event_conn_upd_prep(struct ll_conn *conn,
 #else
 				     ull_master_ticker_cb,
 #endif
-				     conn, ticker_op_cb, (void *)__LINE__);
+				     conn, ticker_start_conn_op_cb,
+				     (void *)conn);
 		LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
 			  (ticker_status == TICKER_STATUS_BUSY));
 
@@ -4110,6 +4160,9 @@ static inline u8_t phy_upd_ind_recv(struct ll_conn *conn, memq_link_t *link,
 		conn->llcp_phy.pause_tx = 0U;
 		conn->procedure_expire = 0U;
 
+		/* Reset packet timing restrictions */
+		conn->lll.phy_tx_time = conn->lll.phy_tx;
+
 		/* Ignore event generation if not local cmd initiated */
 		if (!conn->llcp_phy.cmd) {
 			/* Mark for buffer for release */
@@ -5231,6 +5284,11 @@ static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 				conn->llcp_phy.tx &= p->rx_phys;
 				conn->llcp_phy.rx &= p->tx_phys;
 
+				if (!conn->llcp_phy.tx || !conn->llcp_phy.rx) {
+					conn->llcp_phy.tx = 0;
+					conn->llcp_phy.rx = 0;
+				}
+
 				/* pause data packet tx */
 				conn->llcp_phy.pause_tx = 1U;
 
@@ -5258,6 +5316,11 @@ static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 
 			conn->llcp_phy.tx &= p->rx_phys;
 			conn->llcp_phy.rx &= p->tx_phys;
+
+			if (!conn->llcp_phy.tx || !conn->llcp_phy.rx) {
+				conn->llcp_phy.tx = 0;
+				conn->llcp_phy.rx = 0;
+			}
 
 			/* pause data packet tx */
 			conn->llcp_phy.pause_tx = 1U;
@@ -5339,9 +5402,18 @@ ull_conn_rx_unknown_rsp_send:
 	return nack;
 }
 
-static void ticker_op_cb(u32_t status, void *params)
+static void ticker_stop_conn_op_cb(u32_t status, void *param)
 {
-	ARG_UNUSED(params);
-
 	LL_ASSERT(status == TICKER_STATUS_SUCCESS);
+
+	void *p = ull_update_mark(param);
+	LL_ASSERT(p == param);
+}
+
+static void ticker_start_conn_op_cb(u32_t status, void *param)
+{
+	LL_ASSERT(status == TICKER_STATUS_SUCCESS);
+
+	void *p = ull_update_unmark(param);
+	LL_ASSERT(p == param);
 }

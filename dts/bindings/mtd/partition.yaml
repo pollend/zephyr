@@ -1,4 +1,4 @@
----
+
 title: Flash Partitions
 version: 0.1
 
@@ -7,10 +7,23 @@ description: >
 
 properties:
     compatible:
-      type: string
+      constraint: "fixed-partitions"
+      type: string-array
       category: required
       description: compatible strings
-      constraint: "fixed-partitions"
-      generation: define
 
-...
+sub-node:
+    properties:
+       label:
+          category: required
+          type: string
+          category: optional
+          description: Human readable string describing the device (used by Zephyr for API name)
+       read-only:
+          type: boolean
+          category: optional
+          description: if the partition is read-only or not
+       reg:
+          type: array
+          description: register space
+          category: required

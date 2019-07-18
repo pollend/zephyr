@@ -1,0 +1,42 @@
+
+title: base device binding
+version: 0.1
+
+description: >
+    Binding for device
+
+properties:
+    compatible:
+        type: string-array
+        category: required
+        description: compatible strings
+
+    reg:
+        type: array
+        description: register space
+        category: optional
+
+    reg-names:
+        type: string-array
+        description: name of each register space
+        category: optional
+
+    interrupts:
+        type: array
+        category: optional
+        description: interrupts for device
+
+    interrupt-names:
+        type: string-array
+        category: optional
+        description: name of each interrupt
+
+    label:
+        type: string
+        category: optional
+        description: Human readable string describing the device (used by Zephyr for API name)
+
+    clocks:
+        type: array
+        category: optional
+        description: Clock gate information

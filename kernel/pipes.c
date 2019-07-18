@@ -16,10 +16,10 @@
 #include <toolchain.h>
 #include <linker/sections.h>
 #include <wait_q.h>
-#include <misc/dlist.h>
+#include <sys/dlist.h>
 #include <init.h>
 #include <syscall_handler.h>
-#include <misc/__assert.h>
+#include <sys/__assert.h>
 #include <kernel_internal.h>
 
 struct k_pipe_desc {
@@ -49,13 +49,13 @@ K_STACK_DEFINE(pipe_async_msgs, CONFIG_NUM_PIPE_ASYNC_MSGS);
 /* Allocate an asynchronous message descriptor */
 static void pipe_async_alloc(struct k_pipe_async **async)
 {
-	(void)k_stack_pop(&pipe_async_msgs, (u32_t *)async, K_FOREVER);
+	(void)k_stack_pop(&pipe_async_msgs, (stack_data_t *)async, K_FOREVER);
 }
 
 /* Free an asynchronous message descriptor */
 static void pipe_async_free(struct k_pipe_async *async)
 {
-	k_stack_push(&pipe_async_msgs, (u32_t)async);
+	k_stack_push(&pipe_async_msgs, (stack_data_t)async);
 }
 
 /* Finish an asynchronous operation */
@@ -108,7 +108,7 @@ static int init_pipes_module(struct device *dev)
 
 		z_init_thread_timeout(&async_msg[i].thread);
 
-		k_stack_push(&pipe_async_msgs, (u32_t)&async_msg[i]);
+		k_stack_push(&pipe_async_msgs, (stack_data_t)&async_msg[i]);
 	}
 #endif /* CONFIG_NUM_PIPE_ASYNC_MSGS > 0 */
 
@@ -662,7 +662,7 @@ int z_impl_k_pipe_get(struct k_pipe *pipe, void *data, size_t bytes_to_read,
 		desc->buffer         += bytes_copied;
 		desc->bytes_to_xfer  -= bytes_copied;
 
-		/* Write request has been satsified */
+		/* Write request has been satisfied */
 		pipe_thread_ready(thread);
 
 		thread = (struct k_thread *)sys_dlist_get(&xfer_list);

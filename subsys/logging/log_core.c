@@ -9,11 +9,12 @@
 #include <logging/log_backend.h>
 #include <logging/log_ctrl.h>
 #include <logging/log_output.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 #include <init.h>
 #include <assert.h>
-#include <atomic.h>
+#include <sys/atomic.h>
 #include <ctype.h>
+#include <logging/log_frontend.h>
 
 LOG_MODULE_REGISTER(log);
 
@@ -51,7 +52,7 @@ struct log_strdup_buf {
 
 static const char *log_strdup_fail_msg = "<log_strdup alloc failed>";
 struct k_mem_slab log_strdup_pool;
-static u8_t __noinit __aligned(sizeof(u32_t))
+static u8_t __noinit __aligned(sizeof(void *))
 		log_strdup_pool_buf[LOG_STRDUP_POOL_BUFFER_SIZE];
 
 static struct log_list_t list;
@@ -125,13 +126,12 @@ static u32_t count_s(const char *str, u32_t nargs)
  */
 static bool is_rodata(const void *addr)
 {
-#if defined(CONFIG_ARM) || defined(CONFIG_ARC) || defined(CONIFG_RISCV32) || \
-	defined(CONFIG_X86)
+#if defined(CONFIG_ARM) || defined(CONFIG_ARC) || defined(CONFIG_X86)
 	extern const char *_image_rodata_start[];
 	extern const char *_image_rodata_end[];
 	#define RO_START _image_rodata_start
 	#define RO_END _image_rodata_end
-#elif defined(CONFIG_NIOS2)
+#elif defined(CONFIG_NIOS2) || defined(CONFIG_RISCV32)
 	extern const char *_image_rom_start[];
 	extern const char *_image_rom_end[];
 	#define RO_START _image_rom_start
@@ -151,7 +151,7 @@ static bool is_rodata(const void *addr)
 }
 
 /**
- * @brief Scan string arguments and report evert address which is not in read
+ * @brief Scan string arguments and report every address which is not in read
  *	  only memory and not yet duplicated.
  *
  * @param msg Log message.
@@ -161,8 +161,15 @@ static void detect_missed_strdup(struct log_msg *msg)
 #define ERR_MSG	"argument %d in log message \"%s\" missing log_strdup()."
 	u32_t idx;
 	const char *str;
-	const char *msg_str = log_msg_str_get(msg);
-	u32_t mask = count_s(msg_str, log_msg_nargs_get(msg));
+	const char *msg_str;
+	u32_t mask;
+
+	if (!log_msg_is_std(msg)) {
+		return;
+	}
+
+	msg_str = log_msg_str_get(msg);
+	mask = count_s(msg_str, log_msg_nargs_get(msg));
 
 	while (mask) {
 		idx = 31 - __builtin_clz(mask);
@@ -198,7 +205,9 @@ static inline void msg_finalize(struct log_msg *msg,
 	irq_unlock(key);
 
 	if (panic_mode) {
+		key = irq_lock();
 		(void)log_process(false);
+		irq_unlock(key);
 	} else if (CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD) {
 		if ((buffered_cnt == CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD) &&
 		    (proc_tid != NULL)) {
@@ -209,67 +218,87 @@ static inline void msg_finalize(struct log_msg *msg,
 
 void log_0(const char *str, struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_create_0(str);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_0(str, src_level);
+	} else {
+		struct log_msg *msg = log_msg_create_0(str);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+		msg_finalize(msg, src_level);
 	}
-	msg_finalize(msg, src_level);
 }
 
 void log_1(const char *str,
-	   u32_t arg0,
+	   log_arg_t arg0,
 	   struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_create_1(str, arg0);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_1(str, arg0, src_level);
+	} else {
+		struct log_msg *msg = log_msg_create_1(str, arg0);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+		msg_finalize(msg, src_level);
 	}
-	msg_finalize(msg, src_level);
 }
 
 void log_2(const char *str,
-	   u32_t arg0,
-	   u32_t arg1,
+	   log_arg_t arg0,
+	   log_arg_t arg1,
 	   struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_create_2(str, arg0, arg1);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_2(str, arg0, arg1, src_level);
+	} else {
+		struct log_msg *msg = log_msg_create_2(str, arg0, arg1);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+
+		msg_finalize(msg, src_level);
 	}
-
-	msg_finalize(msg, src_level);
 }
 
 void log_3(const char *str,
-	   u32_t arg0,
-	   u32_t arg1,
-	   u32_t arg2,
+	   log_arg_t arg0,
+	   log_arg_t arg1,
+	   log_arg_t arg2,
 	   struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_create_3(str, arg0, arg1, arg2);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_3(str, arg0, arg1, arg2, src_level);
+	} else {
+		struct log_msg *msg = log_msg_create_3(str, arg0, arg1, arg2);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+
+		msg_finalize(msg, src_level);
 	}
-
-	msg_finalize(msg, src_level);
 }
 
 void log_n(const char *str,
-	   u32_t *args,
+	   log_arg_t *args,
 	   u32_t narg,
 	   struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_create_n(str, args, narg);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_n(str, args, narg, src_level);
+	} else {
+		struct log_msg *msg = log_msg_create_n(str, args, narg);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+
+		msg_finalize(msg, src_level);
 	}
-
-	msg_finalize(msg, src_level);
 }
 
 void log_hexdump(const char *str,
@@ -277,13 +306,17 @@ void log_hexdump(const char *str,
 		 u32_t length,
 		 struct log_msg_ids src_level)
 {
-	struct log_msg *msg = log_msg_hexdump_create(str, data, length);
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_hexdump(str, data, length, src_level);
+	} else {
+		struct log_msg *msg = log_msg_hexdump_create(str, data, length);
 
-	if (msg == NULL) {
-		return;
+		if (msg == NULL) {
+			return;
+		}
+
+		msg_finalize(msg, src_level);
 	}
-
-	msg_finalize(msg, src_level);
 }
 
 int log_printk(const char *fmt, va_list ap)
@@ -342,7 +375,8 @@ static u32_t count_args(const char *fmt)
 
 void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap)
 {
-	if (IS_ENABLED(CONFIG_LOG_IMMEDIATE)) {
+	if (IS_ENABLED(CONFIG_LOG_IMMEDIATE) &&
+	    (!IS_ENABLED(CONFIG_LOG_FRONTEND))) {
 		struct log_backend const *backend;
 		u32_t timestamp = timestamp_func();
 
@@ -355,11 +389,11 @@ void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap)
 			}
 		}
 	} else {
-		u32_t args[LOG_MAX_NARGS];
+		log_arg_t args[LOG_MAX_NARGS];
 		u32_t nargs = count_args(fmt);
 
 		for (int i = 0; i < nargs; i++) {
-			args[i] = va_arg(ap, u32_t);
+			args[i] = va_arg(ap, log_arg_t);
 		}
 
 		log_n(fmt, args, nargs, src_level);
@@ -380,16 +414,20 @@ void log_string_sync(struct log_msg_ids src_level, const char *fmt, ...)
 void log_hexdump_sync(struct log_msg_ids src_level, const char *metadata,
 		      const u8_t *data, u32_t len)
 {
-	struct log_backend const *backend;
-	u32_t timestamp = timestamp_func();
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_hexdump(metadata, data, len, src_level);
+	} else {
+		struct log_backend const *backend;
+		u32_t timestamp = timestamp_func();
 
-	for (int i = 0; i < log_backend_count_get(); i++) {
-		backend = log_backend_get(i);
+		for (int i = 0; i < log_backend_count_get(); i++) {
+			backend = log_backend_get(i);
 
-		if (log_backend_is_active(backend)) {
-			log_backend_put_sync_hexdump(backend, src_level,
-						     timestamp, metadata,
-						     data, len);
+			if (log_backend_is_active(backend)) {
+				log_backend_put_sync_hexdump(backend, src_level,
+							timestamp, metadata,
+							data, len);
+			}
 		}
 	}
 }
@@ -446,6 +484,10 @@ void log_init(void)
 {
 	assert(log_backend_count_get() < LOG_FILTERS_NUM_OF_SLOTS);
 	int i;
+
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_init();
+	}
 
 	if (atomic_inc(&initialized) != 0) {
 		return;
@@ -509,7 +551,7 @@ void log_panic(void)
 		return;
 	}
 
-	/* If panic happend early logger might not be initialized.
+	/* If panic happened early logger might not be initialized.
 	 * Forcing initialization of the logger and auto-starting backends.
 	 */
 	log_init();

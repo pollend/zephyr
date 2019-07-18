@@ -43,23 +43,27 @@
 	};
 };
 
+&cpu0 {
+	clock-frequency = <48000000>;
+};
+
 &usart0 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };
 
 &mailbox0 {
-	status = "ok";
+	status = "okay";
 };
 
 &red_led {
-	status = "ok";
+	status = "okay";
 };
 
 &green_led {
-	status = "ok";
+	status = "okay";
 };
 
 &blue_led {
-	status = "ok";
+	status = "okay";
 };

@@ -25,7 +25,11 @@
 	};
 };
 
+&cpu0 {
+	clock-frequency = <144000000>;
+};
+
 &uart0 {
-	status = "ok";
+	status = "okay";
 	current-speed = <115200>;
 };

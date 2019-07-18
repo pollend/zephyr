@@ -70,42 +70,41 @@
 #if defined(CONFIG_NET_SOCKETS)
 	SECTION_PROLOGUE(net_socket_register,,)
 	{
-		__net_socket_register_start = .;
-		*(".net_socket_register.init")
-		KEEP(*(SORT_BY_NAME(".net_socket_register.init*")))
-		__net_socket_register_end = .;
+		_net_socket_register_list_start = .;
+		KEEP(*(SORT_BY_NAME("._net_socket_register.*")))
+		_net_socket_register_list_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)
 #endif
 
 	SECTION_DATA_PROLOGUE(_bt_channels_area,,SUBALIGN(4))
 	{
-		_bt_channels_start = .;
-		KEEP(*(SORT_BY_NAME("._bt_channels.static.*")))
-		_bt_channels_end = .;
+		_bt_l2cap_fixed_chan_list_start = .;
+		KEEP(*(SORT_BY_NAME("._bt_l2cap_fixed_chan.static.*")))
+		_bt_l2cap_fixed_chan_list_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)
 
 #if defined(CONFIG_BT_BREDR)
 	SECTION_DATA_PROLOGUE(_bt_br_channels_area,,SUBALIGN(4))
 	{
-		_bt_br_channels_start = .;
-		KEEP(*(SORT_BY_NAME("._bt_br_channels.static.*")))
-		_bt_br_channels_end = .;
+		_bt_l2cap_br_fixed_chan_list_start = .;
+		KEEP(*(SORT_BY_NAME("._bt_l2cap_br_fixed_chan.static.*")))
+		_bt_l2cap_br_fixed_chan_list_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)
 #endif
 
 	SECTION_DATA_PROLOGUE(_bt_services_area,,SUBALIGN(4))
 	{
-		_bt_services_start = .;
-		KEEP(*(SORT_BY_NAME("._bt_services.static.*")))
-		_bt_services_end = .;
+		_bt_gatt_service_static_list_start = .;
+		KEEP(*(SORT_BY_NAME("._bt_gatt_service_static.static.*")))
+		_bt_gatt_service_static_list_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)
 
-#if defined(CONFIG_BT_SETTINGS)
-	SECTION_DATA_PROLOGUE(_bt_settings_area,,SUBALIGN(4))
+#if defined(CONFIG_SETTINGS)
+	SECTION_DATA_PROLOGUE(_settings_handlers_area,,SUBALIGN(4))
 	{
-		_bt_settings_start = .;
-		KEEP(*(SORT_BY_NAME("._bt_settings_handler.static.*")))
-		_bt_settings_end = .;
+		_settings_handler_static_list_start = .;
+		KEEP(*(SORT_BY_NAME("._settings_handler_static.static.*")))
+		_settings_handler_static_list_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)
 #endif
 
@@ -133,6 +132,6 @@
 	SECTION_DATA_PROLOGUE(font_entry_sections,,)
 	{
 		__font_entry_start = .;
-		KEEP(*(SORT_BY_NAME(".font_entry.*")))
+		KEEP(*(SORT_BY_NAME("._cfb_font.*")))
 		__font_entry_end = .;
 	} GROUP_LINK_IN(ROMABLE_REGION)

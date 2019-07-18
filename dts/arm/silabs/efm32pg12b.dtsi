@@ -14,7 +14,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu@0 {
+		cpu0: cpu@0 {
 			compatible = "arm,cortex-m4f";
 			reg = <0>;
 		};
@@ -107,6 +107,16 @@
 			interrupts = <42 0>;
 			label = "I2C_1";
 			status = "disabled";
+		};
+
+		rtcc0: rtcc@40042000 {
+			compatible = "silabs,gecko-rtcc";
+			reg = <0x40042000 0x184>;
+			interrupts = <30 0>;
+			clock-frequency = <32768>;
+			prescaler = <1>;
+			status = "disabled";
+			label = "RTCC_0";
 		};
 
 		gpio: gpio@4000a400 {

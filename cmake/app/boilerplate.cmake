@@ -72,6 +72,8 @@ add_custom_target(code_data_relocation_target)
 # and its associated variables, e.g. PROJECT_SOURCE_DIR.
 # It is recommended to always use ZEPHYR_BASE instead of PROJECT_SOURCE_DIR
 # when trying to reference ENV${ZEPHYR_BASE}.
+
+# Note any later project() resets PROJECT_SOURCE_DIR
 file(TO_CMAKE_PATH "$ENV{ZEPHYR_BASE}" PROJECT_SOURCE_DIR)
 
 set(ZEPHYR_BINARY_DIR ${PROJECT_BINARY_DIR})
@@ -395,6 +397,8 @@ elseif(DEFINED ENV{DTC_OVERLAY_FILE})
   set(DTC_OVERLAY_FILE $ENV{DTC_OVERLAY_FILE})
 elseif(EXISTS          ${APPLICATION_SOURCE_DIR}/${BOARD}.overlay)
   set(DTC_OVERLAY_FILE ${APPLICATION_SOURCE_DIR}/${BOARD}.overlay)
+elseif(EXISTS          ${APPLICATION_SOURCE_DIR}/app.overlay)
+  set(DTC_OVERLAY_FILE ${APPLICATION_SOURCE_DIR}/app.overlay)
 endif()
 
 set(DTC_OVERLAY_FILE ${DTC_OVERLAY_FILE} CACHE STRING "If desired, you can \

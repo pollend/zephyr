@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
----
+
 title: FXOS8700 6-axis accelerometer/magnetometer
 version: 0.1
 
@@ -21,15 +21,11 @@ properties:
     reset-gpios:
       type: compound
       category: optional
-      generation: define, use-prop-name
 
     int1-gpios:
       type: compound
       category: optional
-      generation: define, use-prop-name
 
     int2-gpios:
       type: compound
       category: optional
-      generation: define, use-prop-name
-...

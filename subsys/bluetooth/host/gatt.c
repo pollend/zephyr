@@ -11,9 +11,9 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include <atomic.h>
-#include <misc/byteorder.h>
-#include <misc/util.h>
+#include <sys/atomic.h>
+#include <sys/byteorder.h>
+#include <sys/util.h>
 
 #include <settings/settings.h>
 
@@ -50,9 +50,6 @@
 
 #define DB_HASH_TIMEOUT	K_MSEC(10)
 
-/* Linker-defined symbols bound to the bt_gatt_service_static structs */
-extern const struct bt_gatt_service_static _bt_services_start[];
-extern const struct bt_gatt_service_static _bt_services_end[];
 static u16_t last_static_handle;
 
 /* Persistent storage format for GATT CCC */
@@ -534,20 +531,46 @@ static const struct bt_gatt_attr *find_attr(uint16_t handle)
 	return attr;
 }
 
+static void gatt_insert(struct bt_gatt_service *svc, u16_t last_handle)
+{
+	struct bt_gatt_service *tmp, *prev = NULL;
+
+	if (last_handle == 0 || svc->attrs[0].handle > last_handle) {
+		sys_slist_append(&db, &svc->node);
+		return;
+	}
+
+	/* DB shall always have its service in ascending order */
+	SYS_SLIST_FOR_EACH_CONTAINER(&db, tmp, node) {
+		if (tmp->attrs[0].handle > svc->attrs[0].handle) {
+			if (prev) {
+				sys_slist_insert(&db, &prev->node, &svc->node);
+			} else {
+				sys_slist_prepend(&db, &svc->node);
+			}
+			return;
+		}
+
+		prev = tmp;
+	}
+}
+
 static int gatt_register(struct bt_gatt_service *svc)
 {
 	struct bt_gatt_service *last;
-	u16_t handle;
+	u16_t handle, last_handle;
 	struct bt_gatt_attr *attrs = svc->attrs;
 	u16_t count = svc->attr_count;
 
 	if (sys_slist_is_empty(&db)) {
 		handle = last_static_handle;
+		last_handle = 0;
 		goto populate;
 	}
 
 	last = SYS_SLIST_PEEK_TAIL_CONTAINER(&db, last, node);
 	handle = last->attrs[last->attr_count - 1].handle;
+	last_handle = handle;
 
 populate:
 	/* Populate the handles and append them to the list */
@@ -570,7 +593,7 @@ populate:
 		       attrs->perm);
 	}
 
-	sys_slist_append(&db, &svc->node);
+	gatt_insert(svc, last_handle);
 
 	return 0;
 }
@@ -708,22 +731,23 @@ static void ccc_delayed_store(struct k_work *work)
 
 void bt_gatt_init(void)
 {
-	const struct bt_gatt_service_static *svc;
-
 	if (!atomic_cas(&init, 0, 1)) {
 		return;
 	}
 
-	for (svc = _bt_services_start; svc < _bt_services_end; svc++) {
+	Z_STRUCT_SECTION_FOREACH(bt_gatt_service_static, svc) {
 		last_static_handle += svc->attr_count;
 	}
 
-#if defined(CONFIG_BT_GATT_DYNAMIC_DB)
 #if defined(CONFIG_BT_GATT_CACHING)
 	k_delayed_work_init(&db_hash_work, db_hash_process);
-	db_hash_gen(false);
-#endif /* COFNIG_BT_GATT_CACHING */
 
+	/* Submit work to Generate initial hash as there could be static
+	 * services already in the database.
+	 */
+	k_delayed_work_submit(&db_hash_work, DB_HASH_TIMEOUT);
+#endif /* CONFIG_BT_GATT_CACHING */
+#if defined(CONFIG_BT_GATT_DYNAMIC_DB)
 	k_delayed_work_init(&gatt_sc.work, sc_process);
 #endif /* CONFIG_BT_GATT_DYNAMIC_DB */
 #if defined(CONFIG_BT_SETTINGS_CCC_STORE_ON_WRITE)
@@ -907,11 +931,9 @@ static u8_t get_service_handles(const struct bt_gatt_attr *attr,
 
 static u16_t find_static_attr(const struct bt_gatt_attr *attr)
 {
-	const struct bt_gatt_service_static *static_svc;
-	u16_t handle;
+	u16_t handle = 1;
 
-	for (static_svc = _bt_services_start, handle = 1;
-	     static_svc < _bt_services_end; static_svc++) {
+	Z_STRUCT_SECTION_FOREACH(bt_gatt_service_static, static_svc) {
 		for (int i = 0; i < static_svc->attr_count; i++, handle++) {
 			if (attr == &static_svc->attrs[i]) {
 				return handle;
@@ -961,12 +983,29 @@ struct gatt_chrc {
 	};
 } __packed;
 
+uint16_t bt_gatt_attr_value_handle(const struct bt_gatt_attr *attr)
+{
+	u16_t handle = 0;
+
+	if ((attr != NULL)
+	    && (attr->read == bt_gatt_attr_read_chrc)) {
+		struct bt_gatt_chrc *chrc = attr->user_data;
+
+		handle = chrc->value_handle;
+		if (handle == 0) {
+			/* Fall back to Zephyr value handle policy */
+			handle = (attr->handle ? : find_static_attr(attr)) + 1U;
+		}
+	}
+
+	return handle;
+}
+
 ssize_t bt_gatt_attr_read_chrc(struct bt_conn *conn,
 			       const struct bt_gatt_attr *attr, void *buf,
 			       u16_t len, u16_t offset)
 {
 	struct bt_gatt_chrc *chrc = attr->user_data;
-	u16_t handle = attr->handle ? : find_static_attr(attr);
 	struct gatt_chrc pdu;
 	u8_t value_len;
 
@@ -978,7 +1017,7 @@ ssize_t bt_gatt_attr_read_chrc(struct bt_conn *conn,
 	 * declaration. All characteristic definitions shall have a
 	 * Characteristic Value declaration.
 	 */
-	pdu.value_handle = sys_cpu_to_le16(handle + 1);
+	pdu.value_handle = sys_cpu_to_le16(bt_gatt_attr_value_handle(attr));
 
 	value_len = sizeof(pdu.properties) + sizeof(pdu.value_handle);
 
@@ -999,6 +1038,8 @@ static u8_t gatt_foreach_iter(const struct bt_gatt_attr *attr,
 			      const void *attr_data, uint16_t *num_matches,
 			      bt_gatt_attr_func_t func, void *user_data)
 {
+	u8_t result;
+
 	/* Stop if over the requested range */
 	if (attr->handle > end_handle) {
 		return BT_GATT_ITER_STOP;
@@ -1019,11 +1060,15 @@ static u8_t gatt_foreach_iter(const struct bt_gatt_attr *attr,
 		return BT_GATT_ITER_CONTINUE;
 	}
 
-	if (*num_matches) {
-		*num_matches -= 1;
+	*num_matches -= 1;
+
+	result = func(attr, user_data);
+
+	if (!*num_matches) {
+		return BT_GATT_ITER_STOP;
 	}
 
-	return func(attr, user_data);
+	return result;
 }
 
 void bt_gatt_foreach_attr_type(u16_t start_handle, u16_t end_handle,
@@ -1039,11 +1084,9 @@ void bt_gatt_foreach_attr_type(u16_t start_handle, u16_t end_handle,
 	}
 
 	if (start_handle <= last_static_handle) {
-		const struct bt_gatt_service_static *static_svc;
-		u16_t handle;
+		u16_t handle = 1;
 
-		for (static_svc = _bt_services_start, handle = 1;
-		     static_svc < _bt_services_end; static_svc++) {
+		Z_STRUCT_SECTION_FOREACH(bt_gatt_service_static, static_svc) {
 			/* Skip ahead if start is not within service handles */
 			if (handle + static_svc->attr_count < start_handle) {
 				handle += static_svc->attr_count;
@@ -1065,11 +1108,6 @@ void bt_gatt_foreach_attr_type(u16_t start_handle, u16_t end_handle,
 				    BT_GATT_ITER_STOP) {
 					return;
 				}
-			}
-
-			/* Stop if number of matches has reached 0 */
-			if (!num_matches) {
-				return;
 			}
 		}
 	}
@@ -1094,11 +1132,6 @@ void bt_gatt_foreach_attr_type(u16_t start_handle, u16_t end_handle,
 			    BT_GATT_ITER_STOP) {
 				return;
 			}
-		}
-
-		/* Stop if number of matches has reached 0 */
-		if (!num_matches) {
-			return;
 		}
 	}
 }
@@ -1197,15 +1230,19 @@ ssize_t bt_gatt_attr_write_ccc(struct bt_conn *conn,
 	struct bt_gatt_ccc_cfg *cfg;
 	u16_t value;
 
-	if (offset > sizeof(u16_t)) {
+	if (offset) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
-	if (offset + len > sizeof(u16_t)) {
+	if (!len || len > sizeof(u16_t)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
-	value = sys_get_le16(buf);
+	if (len < sizeof(u16_t)) {
+		value = *(u8_t *)buf;
+	} else {
+		value = sys_get_le16(buf);
+	}
 
 	cfg = find_ccc_cfg(conn, ccc);
 	if (!cfg) {
@@ -1517,12 +1554,15 @@ static u8_t match_uuid(const struct bt_gatt_attr *attr, void *user_data)
 	return BT_GATT_ITER_STOP;
 }
 
-static int gatt_notify_params(struct bt_conn *conn,
-			      struct bt_gatt_notify_params *params)
+int bt_gatt_notify_cb(struct bt_conn *conn,
+		      struct bt_gatt_notify_params *params)
 {
 	struct notify_data data;
 	const struct bt_gatt_attr *attr;
 	u16_t handle;
+
+	__ASSERT(params, "invalid parameters\n");
+	__ASSERT(params->attr, "invalid parameters\n");
 
 	attr = params->attr;
 
@@ -1555,7 +1595,7 @@ static int gatt_notify_params(struct bt_conn *conn,
 			return -EINVAL;
 		}
 
-		handle++;
+		handle = bt_gatt_attr_value_handle(attr);
 	}
 
 	if (conn) {
@@ -1570,25 +1610,6 @@ static int gatt_notify_params(struct bt_conn *conn,
 				  notify_cb, &data);
 
 	return data.err;
-}
-
-int bt_gatt_notify_cb(struct bt_conn *conn, u16_t num_params,
-		      struct bt_gatt_notify_params *params)
-{
-	int i, ret;
-
-	__ASSERT(params, "invalid parameters\n");
-	__ASSERT(num_params, "invalid parameters\n");
-	__ASSERT(params->attr, "invalid parameters\n");
-
-	for (i = 0; i < num_params; i++) {
-		ret = gatt_notify_params(conn, &params[i]);
-		if (ret < 0) {
-			return ret;
-		}
-	}
-
-	return 0;
 }
 
 int bt_gatt_indicate(struct bt_conn *conn,
@@ -1613,7 +1634,7 @@ int bt_gatt_indicate(struct bt_conn *conn,
 			return -EINVAL;
 		}
 
-		handle++;
+		handle = bt_gatt_attr_value_handle(params->attr);
 	}
 
 	if (conn) {
@@ -2144,11 +2165,12 @@ done:
 	return 0;
 }
 
-#define BT_GATT_CHRC(_uuid, _props)					\
+#define BT_GATT_CHRC(_uuid, _handle, _props)				\
 	BT_GATT_ATTRIBUTE(BT_UUID_GATT_CHRC, BT_GATT_PERM_READ,		\
 			  bt_gatt_attr_read_chrc, NULL,			\
 			  (&(struct bt_gatt_chrc) { .uuid = _uuid,	\
-						   .properties = _props, }))
+						    .value_handle = _handle,  \
+						    .properties = _props, }))
 
 static u16_t parse_characteristic(struct bt_conn *conn, const void *pdu,
 				  struct bt_gatt_discover_params *params,
@@ -2206,6 +2228,7 @@ static u16_t parse_characteristic(struct bt_conn *conn, const void *pdu,
 		}
 
 		attr = (&(struct bt_gatt_attr)BT_GATT_CHRC(&u.uuid,
+							   chrc->value_handle,
 							   chrc->properties));
 		attr->handle = handle;
 
@@ -2426,6 +2449,8 @@ static void gatt_find_info_rsp(struct bt_conn *conn, u8_t err,
 		struct bt_uuid_16 u16;
 		struct bt_uuid_128 u128;
 	} u;
+	int i;
+	bool skip = false;
 
 	BT_DBG("err 0x%02x", err);
 
@@ -2449,12 +2474,17 @@ static void gatt_find_info_rsp(struct bt_conn *conn, u8_t err,
 	}
 
 	/* Parse descriptors found */
-	for (length--, pdu = rsp->info; length >= len;
-	     length -= len, pdu = (const u8_t *)pdu + len) {
+	for (i = (length - 1) / len, pdu = rsp->info; i != 0;
+	     i--, pdu = (const u8_t *)pdu + len) {
 		struct bt_gatt_attr *attr;
 
 		info.i16 = pdu;
 		handle = sys_le16_to_cpu(info.i16->handle);
+
+		if (skip) {
+			skip = false;
+			continue;
+		}
 
 		switch (u.uuid.type) {
 		case BT_UUID_TYPE_16:
@@ -2486,10 +2516,7 @@ static void gatt_find_info_rsp(struct bt_conn *conn, u8_t err,
 			 * entry must be its value.
 			 */
 			if (!bt_uuid_cmp(&u.uuid, BT_UUID_GATT_CHRC)) {
-				if (length >= len) {
-					pdu = (const u8_t *)pdu + len;
-					length -= len;
-				}
+				skip = true;
 				continue;
 			}
 		}
@@ -2504,7 +2531,7 @@ static void gatt_find_info_rsp(struct bt_conn *conn, u8_t err,
 	}
 
 	/* Stop if could not parse the whole PDU */
-	if (length > 0) {
+	if (i) {
 		goto done;
 	}
 
@@ -2563,10 +2590,11 @@ int bt_gatt_discover(struct bt_conn *conn,
 		return gatt_read_type(conn, params);
 	case BT_GATT_DISCOVER_DESCRIPTOR:
 		/* Only descriptors can be filtered */
-		if (!bt_uuid_cmp(params->uuid, BT_UUID_GATT_PRIMARY) ||
-		    !bt_uuid_cmp(params->uuid, BT_UUID_GATT_SECONDARY) ||
-		    !bt_uuid_cmp(params->uuid, BT_UUID_GATT_INCLUDE) ||
-		    !bt_uuid_cmp(params->uuid, BT_UUID_GATT_CHRC)) {
+		if (params->uuid &&
+		    (!bt_uuid_cmp(params->uuid, BT_UUID_GATT_PRIMARY) ||
+		     !bt_uuid_cmp(params->uuid, BT_UUID_GATT_SECONDARY) ||
+		     !bt_uuid_cmp(params->uuid, BT_UUID_GATT_INCLUDE) ||
+		     !bt_uuid_cmp(params->uuid, BT_UUID_GATT_CHRC))) {
 			return -EINVAL;
 		}
 	 /* Fallthrough. */
@@ -2616,6 +2644,14 @@ static void parse_read_by_uuid(struct bt_conn *conn,
 		if (rsp->len > length) {
 			break;
 		}
+
+		/* Stop if it's the last handle to be read */
+		if (params->by_uuid.start_handle == params->by_uuid.end_handle) {
+			params->func(conn, 0, params, NULL, 0);
+			return;
+		}
+
+		params->by_uuid.start_handle++;
 	}
 
 	/* Continue reading the attributes */
@@ -3558,26 +3594,29 @@ next:
 	return load->count ? BT_GATT_ITER_CONTINUE : BT_GATT_ITER_STOP;
 }
 
-static int ccc_set(int argc, char **argv, size_t len_rd,
-		   settings_read_cb read_cb, void *cb_arg)
+static int ccc_set(const char *name, size_t len_rd, settings_read_cb read_cb,
+		   void *cb_arg)
 {
 	struct ccc_store ccc_store[CCC_STORE_MAX];
 	struct ccc_load load;
 	bt_addr_le_t addr;
 	int len, err;
+	const char *next;
 
-	if (argc < 1) {
+	settings_name_next(name, &next);
+
+	if (!name) {
 		BT_ERR("Insufficient number of arguments");
 		return -EINVAL;
-	} else if (argc == 1) {
+	} else if (!next) {
 		load.addr_with_id.id = BT_ID_DEFAULT;
 	} else {
-		load.addr_with_id.id = strtol(argv[1], NULL, 10);
+		load.addr_with_id.id = strtol(next, NULL, 10);
 	}
 
-	err = bt_settings_decode_key(argv[0], &addr);
+	err = bt_settings_decode_key(name, &addr);
 	if (err) {
-		BT_ERR("Unable to decode address %s", argv[0]);
+		BT_ERR("Unable to decode address %s", name);
 		return -EINVAL;
 	}
 
@@ -3611,24 +3650,24 @@ static int ccc_set(int argc, char **argv, size_t len_rd,
 	return 0;
 }
 
-BT_SETTINGS_DEFINE(ccc, ccc_set, NULL, NULL);
+SETTINGS_STATIC_HANDLER_DEFINE(bt_ccc, "bt/ccc", NULL, ccc_set, NULL, NULL);
 
 #if defined(CONFIG_BT_GATT_CACHING)
-static int cf_set(int argc, char **argv, size_t len_rd,
-		  settings_read_cb read_cb, void *cb_arg)
+static int cf_set(const char *name, size_t len_rd, settings_read_cb read_cb,
+		  void *cb_arg)
 {
 	struct gatt_cf_cfg *cfg;
 	bt_addr_le_t addr;
 	int len, err;
 
-	if (argc < 1) {
+	if (!name) {
 		BT_ERR("Insufficient number of arguments");
 		return -EINVAL;
 	}
 
-	err = bt_settings_decode_key(argv[0], &addr);
+	err = bt_settings_decode_key(name, &addr);
 	if (err) {
-		BT_ERR("Unable to decode address %s", argv[0]);
+		BT_ERR("Unable to decode address %s", name);
 		return -EINVAL;
 	}
 
@@ -3658,11 +3697,11 @@ static int cf_set(int argc, char **argv, size_t len_rd,
 	return 0;
 }
 
-BT_SETTINGS_DEFINE(cf, cf_set, NULL, NULL);
+SETTINGS_STATIC_HANDLER_DEFINE(bt_cf, "bt/cf", NULL, cf_set, NULL, NULL);
 
 static u8_t stored_hash[16];
 
-static int db_hash_set(int argc, char **argv, size_t len_rd,
+static int db_hash_set(const char *name, size_t len_rd,
 		       settings_read_cb read_cb, void *cb_arg)
 {
 	int len;
@@ -3701,6 +3740,7 @@ static int db_hash_commit(void)
 	return 0;
 }
 
-BT_SETTINGS_DEFINE(hash, db_hash_set, db_hash_commit, NULL);
+SETTINGS_STATIC_HANDLER_DEFINE(bt_hash, "bt/hash", NULL, db_hash_set,
+			       db_hash_commit, NULL);
 #endif /*CONFIG_BT_GATT_CACHING */
 #endif /* CONFIG_BT_SETTINGS */

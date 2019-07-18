@@ -31,9 +31,9 @@
 #include <zephyr.h>
 #include <kernel.h>
 #include <cmsis_os2.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
-#include <misc/__assert.h>
+#include <sys/__assert.h>
 
 #include "phil_obj_abstract.h"
 
@@ -171,7 +171,7 @@ void philosopher(void *id)
 	fork_t fork1;
 	fork_t fork2;
 
-	int my_id = (int)id;
+	int my_id = POINTER_TO_INT(id);
 
 	/* Djkstra's solution: always pick up the lowest numbered fork first */
 	if (is_last_philosopher(my_id)) {
@@ -226,7 +226,7 @@ static void start_threads(void)
 	for (int i = 0; i < NUM_PHIL; i++) {
 		int prio = new_prio(i);
 		thread_attr[i].priority = prio;
-		osThreadNew(philosopher, (void *)i, &thread_attr[i]);
+		osThreadNew(philosopher, INT_TO_POINTER(i), &thread_attr[i]);
 	}
 }
 

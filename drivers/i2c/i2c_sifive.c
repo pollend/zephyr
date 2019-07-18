@@ -9,8 +9,8 @@
 LOG_MODULE_REGISTER(i2c_sifive);
 
 #include <device.h>
-#include <i2c.h>
-#include <sys_io.h>
+#include <drivers/i2c.h>
+#include <sys/sys_io.h>
 
 #include "i2c-priv.h"
 
@@ -345,7 +345,7 @@ static struct i2c_driver_api i2c_sifive_api = {
 			    CONFIG_I2C_INIT_PRIORITY, \
 			    &i2c_sifive_api)
 
-#ifdef DT_SIFIVE_I2C0_0_LABEL
+#ifdef DT_INST_0_SIFIVE_I2C0_LABEL
 I2C_SIFIVE_INIT(0);
 #endif
 

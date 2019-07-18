@@ -11,11 +11,11 @@
 #include <time.h>
 
 #include <clock_control/stm32_clock_control.h>
-#include <clock_control.h>
-#include <misc/util.h>
+#include <drivers/clock_control.h>
+#include <sys/util.h>
 #include <kernel.h>
 #include <soc.h>
-#include <rtc.h>
+#include <drivers/rtc.h>
 
 #if defined(CONFIG_SOC_SERIES_STM32L4X)
 #define EXTI_LINE	LL_EXTI_LINE_18
@@ -238,7 +238,7 @@ static int rtc_stm32_init(struct device *dev)
 	LL_RCC_LSE_SetDriveCapability(CONFIG_RTC_STM32_LSE_DRIVE_STRENGTH);
 	LL_RCC_LSE_Enable();
 
-	/* Wait untill LSE is ready */
+	/* Wait until LSE is ready */
 	while (LL_RCC_LSE_IsReady() != 1) {
 	}
 

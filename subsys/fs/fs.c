@@ -25,8 +25,8 @@ static struct k_mutex mutex;
 /* file system map table */
 static struct fs_file_system_t *fs_map[FS_TYPE_END];
 
-int fs_get_mnt_point(struct fs_mount_t **mnt_pntp,
-		     const char *name, size_t *match_len)
+static int fs_get_mnt_point(struct fs_mount_t **mnt_pntp,
+			    const char *name, size_t *match_len)
 {
 	struct fs_mount_t *mnt_p = NULL, *itr;
 	size_t longest_match = 0;
@@ -472,7 +472,7 @@ int fs_mount(struct fs_mount_t *mp)
 
 	/*  append to the mount list */
 	sys_dlist_append(&fs_mnt_list, &mp->node);
-	LOG_DBG("fs mouted, mount point:%s", mp->mnt_point);
+	LOG_DBG("fs mounted at %s", log_strdup(mp->mnt_point));
 
 mount_err:
 	k_mutex_unlock(&mutex);
@@ -508,7 +508,7 @@ int fs_unmount(struct fs_mount_t *mp)
 
 	/* remove mount node from the list */
 	sys_dlist_remove(&mp->node);
-	LOG_DBG("fs unmouted, mount point:%s", mp->mnt_point);
+	LOG_DBG("fs unmounted from %s", log_strdup(mp->mnt_point));
 
 unmount_err:
 	k_mutex_unlock(&mutex);

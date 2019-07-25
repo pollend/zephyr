@@ -3,9 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
----
+
 title: NXP i.MXRT USDHC module
-version: 0.1
 
 description: >
     This binding specifies the NXP i.MXRT USDHC module.
@@ -32,4 +31,3 @@ properties:
 
     label:
       category: required
-...

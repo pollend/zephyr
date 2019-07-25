@@ -5,7 +5,6 @@
 #
 
 title: Generic fixed rate clock provider
-version: 0.1
 
 description: >
     This is a representation of a generic fixed rate clock provider.
@@ -19,7 +18,7 @@ properties:
 
     label:
       type: string
-      category: required
+      category: optional
       description: Human readable string describing the device (used by Zephyr for API name)
 
     clock-frequency:
